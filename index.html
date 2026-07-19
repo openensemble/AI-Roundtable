@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Roundtable</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --border:#2a3441;
+    --text:#e6edf3; --muted:#8b949e;
+    --user:#3b82f6; --claude:#d97757; --codex:#10a37f; --grok:#e6edf3; --err:#f85149; --stop:#f85149;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    background:var(--bg); color:var(--text);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    display:flex; flex-direction:column; height:100vh;
+  }
+  header{
+    display:flex; align-items:center; gap:14px; padding:12px 18px;
+    background:var(--panel); border-bottom:1px solid var(--border); flex-wrap:wrap;
+  }
+  header h1{font-size:16px; margin:0; font-weight:600; letter-spacing:.2px}
+  #clibanner{
+    padding:10px 18px; font-size:13px; line-height:1.7;
+    background:#2d1a1a; border-bottom:1px solid var(--err); color:var(--text);
+  }
+  #clibanner.platform-only{background:#2b230d;border-bottom-color:#9e6a03}
+  #clibanner code{
+    background:var(--panel2); border:1px solid var(--border); border-radius:4px;
+    padding:1px 6px; font-size:12px; user-select:all;
+  }
+  header h1 .dot{color:var(--claude)}
+  header h1 .dot2{color:var(--codex)}
+  header h1 .dot3{color:var(--grok)}
+  .spacer{flex:1}
+  .controls{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+  .chip{
+    display:inline-flex; align-items:center; gap:6px; padding:5px 10px;
+    background:var(--panel2); border:1px solid var(--border); border-radius:999px;
+    font-size:13px; cursor:pointer; user-select:none; color:var(--muted);
+  }
+  .chip input{accent-color:var(--claude); margin:0}
+  .chip.codex input{accent-color:var(--codex)}
+  .chip.grok input{accent-color:var(--grok)}
+  .chip.on{color:var(--text)}
+  .chip.claude.on{border-color:var(--claude)}
+  .chip.codex.on{border-color:var(--codex)}
+  .chip.grok.on{border-color:var(--grok)}
+  .chip.auto.on{border-color:#a371f7; color:#d2b8ff}
+  .chip.auto.on input{accent-color:#a371f7}
+  .chip.write.on{border-color:#e3b341; color:#e3b341}
+  .chip.write.on input{accent-color:#e3b341}
+  select,button{
+    background:var(--panel2); color:var(--text); border:1px solid var(--border);
+    border-radius:8px; padding:6px 10px; font-size:13px; cursor:pointer;
+  }
+  button:hover:not(:disabled){border-color:#3d4b5c}
+  button:disabled{opacity:.4; cursor:not-allowed}
+  .btn-ghost{background:transparent}
+  label.small{font-size:12px; color:var(--muted)}
+
+  #log{flex:1; overflow-y:auto; padding:22px 0}
+  .wrap{max-width:820px; margin:0 auto; padding:0 18px}
+  .empty{color:var(--muted); text-align:center; margin-top:11vh; line-height:1.7}
+  .empty kbd{background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:12px}
+
+  .msg{display:flex; gap:12px; margin:0 0 20px}
+  .avatar{
+    flex:0 0 34px; height:34px; width:34px; border-radius:9px; display:grid;
+    place-items:center; font-weight:700; font-size:13px; color:#fff; margin-top:2px;
+  }
+  .a-user{background:var(--user)} .a-claude{background:var(--claude)} .a-codex{background:var(--codex)} .a-grok{background:#58636f}
+  .body{flex:1; min-width:0}
+  .who{font-weight:600; font-size:13px; margin-bottom:3px}
+  .who.user{color:var(--user)} .who.claude{color:var(--claude)} .who.codex{color:var(--codex)} .who.grok{color:var(--grok)}
+  .who .tag{font-weight:400; color:var(--muted); font-size:11.5px; margin-left:6px}
+  .content{white-space:pre-wrap; word-wrap:break-word; overflow-wrap:anywhere}
+  .content code{background:var(--panel2); padding:1px 5px; border-radius:4px; font-size:13px}
+  .content pre{background:var(--panel2); border:1px solid var(--border); border-radius:8px;
+    padding:12px; overflow-x:auto; font-size:13px}
+  .content .caret{display:inline-block;width:7px;height:15px;background:currentColor;
+    opacity:.7;vertical-align:-2px;margin-left:1px;animation:blink 1s step-start infinite;border-radius:1px}
+  .msg.error .content{color:var(--err)}
+  .msg.interrupted .body::after{content:"⏸ interrupted"; font-size:11.5px; color:var(--muted); display:block; margin-top:4px}
+
+  .thinking{display:inline-flex; gap:4px; align-items:center; color:var(--muted); font-size:13px}
+  .thinking .dots span{width:6px;height:6px;border-radius:50%;background:var(--muted);display:inline-block;animation:blink2 1.2s infinite both}
+  .thinking .dots span:nth-child(2){animation-delay:.2s}
+  .thinking .dots span:nth-child(3){animation-delay:.4s}
+  @keyframes blink2{0%,80%,100%{opacity:.25}40%{opacity:1}}
+  @keyframes blink{50%{opacity:0}}
+
+  /* live activity sidebar — what each AI is actually doing (tools + thinking) */
+  #main{flex:1; display:flex; min-height:0}
+  #activity{flex:0 0 330px; min-width:0; display:flex; flex-direction:column;
+    background:var(--panel); border-right:1px solid var(--border)}
+  .actpanel{flex:1; display:flex; flex-direction:column; min-height:0}
+  .actpanel+.actpanel{border-top:1px solid var(--border)}
+  .acthead{display:flex; align-items:center; gap:8px; padding:8px 12px; font-size:12.5px;
+    font-weight:600; border-bottom:1px solid var(--border); flex:0 0 auto}
+  .acthead .sq{width:10px; height:10px; border-radius:3px}
+  #act-claude .sq{background:var(--claude)} #act-codex .sq{background:var(--codex)} #act-grok .sq{background:var(--grok)}
+  .acthead .state{margin-left:auto; font-weight:400; font-size:11px; color:var(--muted)}
+  .actpanel.working .state{color:#a371f7}
+  .actpanel.working .state::before{content:"● "; animation:blink2 1.2s infinite both}
+  .actlog{flex:1; overflow-y:auto; padding:8px 12px;
+    font:11.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .actlog .ent{margin:0 0 6px; white-space:pre-wrap; overflow-wrap:anywhere}
+  .actlog .ent.tool{color:var(--text)}
+  .actlog .ent.thinking{color:var(--muted); font-style:italic}
+  .actlog .ent.result{color:var(--muted)}
+  .actlog .ent.err{color:var(--err)}
+  .actlog .actdivider{border-top:1px dashed var(--border); margin:10px 0}
+  .actlog .actempty{color:var(--muted); opacity:.6; font-style:italic}
+  @media (max-width:900px){ #activity{display:none} }
+
+  footer{border-top:1px solid var(--border); background:var(--panel); padding:12px 0}
+  .composer{max-width:820px; margin:0 auto; padding:0 18px; display:flex; gap:10px; align-items:flex-end}
+  textarea{
+    flex:1; resize:none; background:var(--panel2); color:var(--text);
+    border:1px solid var(--border); border-radius:12px; padding:12px 14px;
+    font:inherit; max-height:200px; min-height:48px; line-height:1.5;
+  }
+  textarea:focus{outline:none; border-color:#3d4b5c}
+  #send{background:var(--user); border-color:var(--user); color:#fff; font-weight:600; padding:12px 18px; border-radius:12px; min-width:78px}
+  #send:hover:not(:disabled){filter:brightness(1.08)}
+  #send.stop{background:var(--stop); border-color:var(--stop)}
+  .hint{max-width:820px;margin:6px auto 0;padding:0 18px;font-size:11.5px;color:var(--muted);display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+  #status{color:#a371f7}
+  .ws{display:flex;align-items:center;gap:6px}
+  .identity{display:flex;align-items:center;gap:5px}
+  #userName,#workspace{background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--text)}
+  #userName{font:inherit;font-size:12px;line-height:1.5;padding:3px 7px;width:120px}
+  #userName:focus,#workspace:focus{outline:none;border-color:#3d4b5c}
+  #saveUserName{font-size:11.5px;padding:3px 7px;border-radius:6px}
+  #nameStatus{font-size:12px;width:12px;text-align:center}
+  #workspace{background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--text);
+    font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;padding:3px 7px;width:min(44vw,320px)}
+  #wsstatus{font-size:12px;width:12px;text-align:center}
+
+  #menu{font-size:16px;padding:6px 11px;line-height:1}
+  #overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .2s;z-index:20}
+  #overlay.show{opacity:1;pointer-events:auto}
+  #drawer{position:fixed;top:0;left:0;bottom:0;width:290px;background:var(--panel);border-right:1px solid var(--border);
+    transform:translateX(-100%);transition:transform .2s;z-index:21;display:flex;flex-direction:column}
+  #drawer.show{transform:none}
+  .drawer-head{display:flex;align-items:center;justify-content:space-between;padding:14px;border-bottom:1px solid var(--border);font-weight:600;font-size:14px}
+  #convlist{overflow-y:auto;flex:1;padding:8px}
+  .conv{padding:10px 12px;border-radius:9px;cursor:pointer;position:relative;margin-bottom:2px}
+  .conv:hover{background:var(--panel2)}
+  .conv.active{background:var(--panel2);outline:1px solid var(--border)}
+  .conv .t{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:44px}
+  .conv .m{font-size:11px;color:var(--muted);margin-top:2px}
+  .conv .pin,.conv .del{position:absolute;top:8px;background:none;border:none;cursor:pointer;font-size:12px;padding:3px 4px;border-radius:6px;color:var(--muted);opacity:0;line-height:1}
+  .conv .pin{right:28px} .conv .del{right:6px}
+  .conv:hover .pin,.conv:hover .del{opacity:.7}
+  .conv.pinned .pin{opacity:1;color:#e3b341}
+  .conv .pin:hover{opacity:1;color:#e3b341;background:var(--bg)}
+  .conv .del:hover{opacity:1;color:var(--err);background:var(--bg)}
+  .conv-divider{height:1px;background:var(--border);margin:8px 6px;opacity:.6}
+  .conv-empty{color:var(--muted);font-size:13px;text-align:center;padding:24px 10px;line-height:1.6}
+</style>
+</head>
+<body>
+<div id="overlay"></div>
+<aside id="drawer">
+  <div class="drawer-head"><span>Conversations</span><button class="btn-ghost" id="newconv">＋ New</button></div>
+  <div id="convlist"></div>
+</aside>
+<header>
+  <button class="btn-ghost" id="menu" title="Conversation history">☰</button>
+  <h1>AI&nbsp;Roundtable <span style="color:var(--muted);font-weight:400">·</span> <span id="headerUserName">You</span> + <span class="dot">Claude</span> + <span class="dot2">Codex</span> + <span class="dot3">Grok</span></h1>
+  <div class="spacer"></div>
+  <div class="controls">
+    <span class="chip claude on" id="chip-claude"><input type="checkbox" checked> Claude</span>
+    <span class="chip codex on" id="chip-codex"><input type="checkbox" checked> Codex</span>
+    <span class="chip grok on" id="chip-grok"><input type="checkbox" checked> Grok</span>
+    <span class="chip auto" id="chip-auto"><input type="checkbox"> Auto&nbsp;⟳</span>
+    <span class="chip write" id="chip-write" title="Let the AIs edit files in the 📁 workspace folder (off = read-only)"><input type="checkbox"> ✎ Edit</span>
+    <label class="small">first
+      <select id="first">
+        <option value="claude">Claude</option>
+        <option value="codex">Codex</option>
+        <option value="grok">Grok</option>
+        <option value="alt">alternate</option>
+      </select>
+    </label>
+    <select id="cmodel" title="Claude model">
+      <option value="claude-opus-4-8">Opus 4.8 (deep)</option>
+      <option value="claude-fable-5">Fable 5</option>
+      <option value="claude-sonnet-5">Sonnet 5 (fast)</option>
+      <option value="claude-haiku-4-5-20251001">Haiku 4.5 (quick)</option>
+    </select>
+    <select id="claudeEffort" title="Claude reasoning effort — options match the selected Claude model">
+      <option value="">Claude eff: default</option>
+    </select>
+    <select id="codexModel" title="Codex model"><option value="">Codex: default</option></select>
+    <select id="codexEffort" title="Codex reasoning effort — options match the selected Codex model">
+      <option value="">Codex eff: default</option>
+    </select>
+    <select id="grokModel" title="Grok model"><option value="">Grok: default</option></select>
+    <select id="grokEffort" title="Grok reasoning effort — options match the selected Grok model">
+      <option value="">Grok eff: default</option>
+    </select>
+    <button class="btn-ghost" id="riff" title="Let the AIs reply without a new prompt from you">Riff ▸</button>
+    <button class="btn-ghost" id="export" title="Download transcript">⭳</button>
+    <button class="btn-ghost" id="reset" title="New conversation">New</button>
+    <button class="btn-ghost" id="restart" title="Restart the server (reloads code + provider model/effort catalogs)">⟳</button>
+  </div>
+</header>
+
+<div id="clibanner" hidden></div>
+
+<div id="main">
+  <aside id="activity">
+    <div class="actpanel" id="act-claude">
+      <div class="acthead"><span class="sq"></span>Claude — activity<span class="state">idle</span></div>
+      <div class="actlog"><div class="actempty">tool calls &amp; thinking appear here live</div></div>
+    </div>
+    <div class="actpanel" id="act-codex">
+      <div class="acthead"><span class="sq"></span>Codex — activity<span class="state">idle</span></div>
+      <div class="actlog"><div class="actempty">tool calls &amp; thinking appear here live</div></div>
+    </div>
+    <div class="actpanel" id="act-grok">
+      <div class="acthead"><span class="sq"></span>Grok — activity<span class="state">idle</span></div>
+      <div class="actlog"><div class="actempty">thinking appears here live</div></div>
+    </div>
+  </aside>
+  <div id="log"><div class="wrap"></div></div>
+</div>
+
+<footer>
+  <div class="composer">
+    <textarea id="input" placeholder="Ask the table… or start with Claude, Codex, or Grok to direct a question   (Enter to send · Shift+Enter = newline)" rows="1"></textarea>
+    <button id="send">Send</button>
+  </div>
+  <div class="hint">
+    <span><kbd style="font-size:11px">Enter</kbd> send · <kbd style="font-size:11px">Shift+Enter</kbd> newline · type while they talk to barge in</span>
+    <span id="status"></span>
+    <span class="spacer" style="flex:1"></span>
+    <span class="identity" title="Your display name in transcripts and assistant prompts (saved to local config.json)">👤
+      <input id="userName" maxlength="64" autocomplete="name" placeholder="You" aria-label="Your display name">
+      <button class="btn-ghost" id="saveUserName" type="button">Save</button>
+      <span id="nameStatus" aria-live="polite"></span>
+    </span>
+    <span class="ws" title="Folder the AIs read from — their working directory. Read-only enforcement varies by provider and OS.">📁
+      <input id="workspace" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="/path/to/project">
+      <span id="wsstatus"></span>
+    </span>
+  </div>
+</footer>
+
+<script>
+const $ = s => document.querySelector(s);
+const log = $('#log'), input = $('#input'), sendBtn = $('#send');
+let transcript = [];            // [{name, text, error?, interrupted?, model?}]
+let running = false;            // a generation/loop is active
+let stopRequested = false;
+let currentAbort = null;
+let pendingTargets = null;      // agent keys when user directly addresses one or more AIs
+let roundParity = 0;
+let currentId = null;           // server-side conversation id (null until first save)
+let currentTitle = null;
+let convCache = [];
+let claudeLevelsMap = {};       // slug -> supported effort levels
+let codexLevelsMap = {};        // slug -> supported effort levels
+let codexDefaultsMap = {};      // slug -> validated default for that model
+let codexDefaultSlug = '';
+let codexConfiguredEffort = '';
+let grokLevelsMap = {};         // slug -> supported effort levels
+let grokDefaultSlug = 'grok-4.5';
+
+const STORE = 'ai-roundtable-v2';   // local cache of the open transcript
+const CUR   = 'ai-roundtable-cur';  // id of the last-open conversation
+function save(){ localStorage.setItem(STORE, JSON.stringify(transcript)); schedulePersist(); }
+function loadStore(){
+  try{ transcript = normalizeTranscript(JSON.parse(localStorage.getItem(STORE))||[]); }catch{ transcript=[]; }
+  localStorage.setItem(STORE, JSON.stringify(transcript));
+  currentId = localStorage.getItem(CUR) || null;
+}
+
+/* ---------- disk persistence (survives a browser clear) ---------- */
+let persistTimer=null, persisting=false, dirtyAgain=false;
+function schedulePersist(){ clearTimeout(persistTimer); persistTimer=setTimeout(persistNow, 400); }
+async function persistNow(){
+  if(!transcript.length) return;                 // never save an empty conversation
+  if(persisting){ dirtyAgain=true; return; }
+  persisting=true;
+  const body = JSON.stringify({messages:transcript, ...(currentTitle?{title:currentTitle}:{})});
+  try{
+    let doc;
+    if(!currentId){
+      doc = await (await fetch('/api/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body})).json();
+      currentId = doc.id; localStorage.setItem(CUR, currentId);
+    } else {
+      doc = await (await fetch('/api/conversations/'+currentId,{method:'PUT',headers:{'Content-Type':'application/json'},body})).json();
+    }
+    if(doc && doc.title) currentTitle = doc.title;
+    refreshList();
+  }catch(e){ /* offline — localStorage still holds the thread */ }
+  finally{ persisting=false; if(dirtyAgain){ dirtyAgain=false; persistNow(); } }
+}
+async function refreshList(){
+  try{ renderList(await (await fetch('/api/conversations')).json()); }catch{}
+}
+
+const AGENTS = ['claude','codex','grok'];
+const DISPLAY = {user:'You', claude:'Claude', codex:'Codex', grok:'Grok'};
+const INIT = {user:'Y', claude:'C', codex:'Cx', grok:'G'};
+function normalizeTranscript(messages){
+  if(!Array.isArray(messages)) return [];
+  return messages.filter(m=>m && typeof m==='object').map(m=>{
+    const key=String(m.name||'').toLowerCase();
+    return {...m, name:AGENTS.includes(key)?key:'user'};
+  });
+}
+function applyUserName(value){
+  const name = String(value||'').trim() || 'You';
+  DISPLAY.user = name;
+  const first = Array.from(name)[0] || 'Y';
+  INIT.user = Array.from(first.toLocaleUpperCase())[0] || 'Y';
+  $('#headerUserName').textContent = name;
+  $('#userName').value = name;
+  document.querySelectorAll('.who.user').forEach(el=>{ el.textContent=name; });
+  document.querySelectorAll('.avatar.a-user').forEach(el=>{ el.textContent=INIT.user; });
+}
+
+/* ---------- rendering ---------- */
+function wrapEl(){ return log.querySelector('.wrap'); }
+function autoscroll(){ log.scrollTop = log.scrollHeight; }
+
+function emptyHTML(){
+  return `<div class="empty">Type a prompt below. It goes to every enabled assistant —
+  <b style="color:var(--claude)">Claude</b>, <b style="color:var(--codex)">Codex</b>, and <b style="color:var(--grok)">Grok</b> — in order.<br>
+  All four of you keep one shared thread, so each assistant sees the replies before its own turn.<br><br>
+  <span style="font-size:13px">Toggle the name chips to choose any pair or all three. Start with a name — <kbd>Grok, …</kbd> — to ask just one,<br>
+  or name a pair — <kbd>Claude and Grok, …</kbd> — to direct only those two. Turn on <kbd>Auto ⟳</kbd> for an ongoing roundtable · type while they're talking to <b>barge in</b>.</span></div>`;
+}
+function render(){
+  const w = document.createElement('div'); w.className='wrap';
+  if(!transcript.length) w.innerHTML = emptyHTML();
+  else for(const m of transcript) w.appendChild(finalBubble(m));
+  log.innerHTML=''; log.appendChild(w); autoscroll();
+}
+function bubbleShell(name, tag){
+  const key = AGENTS.includes(name) ? name : 'user';
+  const el = document.createElement('div'); el.className='msg';
+  const avatar = document.createElement('div');
+  avatar.className = `avatar a-${key}`; avatar.textContent = INIT[key];
+  const body = document.createElement('div'); body.className='body';
+  const who = document.createElement('div'); who.className=`who ${key}`; who.textContent=DISPLAY[key];
+  if(tag){ const badge=document.createElement('span'); badge.className='tag'; badge.textContent=tag; who.appendChild(badge); }
+  const content = document.createElement('div'); content.className='content';
+  body.append(who, content); el.append(avatar, body);
+  return el;
+}
+function finalBubble(m){
+  const el = bubbleShell(m.name, m.model?modelTag(m.model):'');
+  if(m.error) el.classList.add('error');
+  if(m.interrupted) el.classList.add('interrupted');
+  el.querySelector('.content').append(fmt(m.text));
+  return el;
+}
+function modelTag(x){
+  return ({'claude-opus-4-8':'Opus','claude-fable-5':'Fable','claude-sonnet-5':'Sonnet',
+    'claude-haiku-4-5-20251001':'Haiku','grok-4.5':'4.5'})[x]||'';
+}
+
+// minimal safe formatting: escape via textContent, render ```code``` + `inline`
+function fmt(text){
+  const frag = document.createDocumentFragment();
+  String(text).split(/```/).forEach((part,i)=>{
+    if(i%2===1){
+      const pre=document.createElement('pre'), code=document.createElement('code');
+      code.textContent = part.replace(/^\w*\n/,''); pre.appendChild(code); frag.appendChild(pre);
+    } else {
+      const span=document.createElement('span');
+      part.split(/`([^`]+)`/).forEach((b,j)=>{
+        if(j%2===1){ const c=document.createElement('code'); c.textContent=b; span.appendChild(c); }
+        else span.appendChild(document.createTextNode(b));
+      });
+      frag.appendChild(span);
+    }
+  });
+  return frag;
+}
+
+/* ---------- live activity panels (what each AI is doing) ---------- */
+const MAX_ACT = 400;                      // lines kept per panel
+function actBox(agent){ return $('#act-'+agent+' .actlog'); }
+function actState(agent, working){
+  $('#act-'+agent).classList.toggle('working', !!working);
+  $('#act-'+agent+' .state').textContent = working ? 'working' : 'idle';
+}
+function actTurnStart(agent){
+  const box = actBox(agent);
+  box.querySelector('.actempty')?.remove();
+  if(box.childElementCount){ const d=document.createElement('div'); d.className='actdivider'; box.appendChild(d); }
+  actState(agent, true);
+  box.scrollTop = box.scrollHeight;
+}
+function addActivity(agent, kind, text, block){
+  if(!text) return;
+  const box = actBox(agent);
+  const stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 40;  // don't yank if user scrolled up
+  const last = box.lastElementChild;
+  if(kind==='thinking' && !block && last && last.dataset.open==='1'){
+    last.textContent += text;             // stream thinking into the open entry
+  } else {
+    if(last) delete last.dataset.open;
+    const el = document.createElement('div');
+    el.className = 'ent ' + (kind||'tool');
+    if(kind==='thinking' && !block) el.dataset.open='1';
+    el.textContent = text;
+    box.appendChild(el);
+  }
+  while(box.childElementCount > MAX_ACT) box.removeChild(box.firstChild);
+  if(stick) box.scrollTop = box.scrollHeight;
+}
+function clearActivity(){
+  AGENTS.forEach(a=>{
+    actBox(a).innerHTML = `<div class="actempty">${a==='grok'?'thinking appears':'tool calls &amp; thinking appear'} here live</div>`;
+    actState(a, false);
+  });
+}
+
+/* ---------- a single live, streaming reply ---------- */
+function streamAgent(agent){
+  return new Promise(resolve=>{
+    if(!transcript.length) log.querySelector('.empty')?.remove();
+    const model = agent==='claude' ? $('#cmodel').value
+      : agent==='grok' ? ($('#grokModel').value || grokDefaultSlug) : null;
+    const el = bubbleShell(agent, model?modelTag(model):'');
+    const content = el.querySelector('.content');
+    content.innerHTML = `<span class="thinking">thinking<span class="dots"><span></span><span></span><span></span></span></span>`;
+    wrapEl().appendChild(el); autoscroll();
+    actTurnStart(agent);
+
+    let buffer='', shown=0, thinking=true, errored=false, streamEnded=false, settled=false;
+    const caret = ()=>{ const c=document.createElement('span'); c.className='caret'; return c; };
+
+    // typewriter reveal (unifies token streams and Codex's block response)
+    const timer = setInterval(()=>{
+      if(shown < buffer.length){
+        if(thinking){ content.textContent=''; thinking=false; }
+        const remaining = buffer.length - shown;
+        shown = Math.min(buffer.length, shown + Math.max(2, Math.ceil(remaining/5)));
+        content.textContent = buffer.slice(0,shown);
+        content.appendChild(caret());
+        autoscroll();
+      } else if(streamEnded){
+        finish();
+      }
+    }, 16);
+
+    function finish(){
+      if(settled) return; settled=true;
+      clearInterval(timer);
+      actState(agent, false);
+      const text = buffer;
+      const interrupted = stopRequested && !streamEnded;
+      content.innerHTML=''; content.append(fmt(text));
+      el.classList.toggle('error', errored);
+      el.classList.toggle('interrupted', interrupted);
+      if(text.trim()){
+        transcript.push({name:agent, text, error:errored, interrupted, ...(model?{model}:{})});
+        save();
+      } else {
+        el.remove();
+        if(!transcript.length) render();
+      }
+      resolve();
+    }
+
+    currentAbort = new AbortController();
+    fetch('/api/ask', {
+      method:'POST', signal:currentAbort.signal,
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({agent, claudeModel:$('#cmodel').value, codexModel:$('#codexModel').value,
+        grokModel:$('#grokModel').value,
+        effort: (agent==='claude' ? $('#claudeEffort').value
+          : agent==='codex' ? $('#codexEffort').value : $('#grokEffort').value),
+        cwd: $('#workspace').value.trim(), write: writeOn(),
+        transcript: transcript.map(m=>({name:m.name, text:m.text}))})
+    }).then(async res=>{
+      const reader = res.body.getReader(); const dec = new TextDecoder(); let buf='';
+      while(true){
+        const {value,done} = await reader.read();
+        if(done) break;
+        buf += dec.decode(value,{stream:true});
+        let nl;
+        while((nl=buf.indexOf('\n'))>=0){
+          const line=buf.slice(0,nl).trim(); buf=buf.slice(nl+1);
+          if(!line) continue;
+          let ev; try{ ev=JSON.parse(line); }catch{ continue; }
+          if(ev.type==='delta') buffer += ev.text;
+          else if(ev.type==='activity') addActivity(agent, ev.kind, ev.text, ev.block);
+          else if(ev.type==='error'){ buffer += (buffer?'\n':'')+ev.text; errored=true; addActivity(agent,'err',ev.text); }
+          else if(ev.type==='done'){ if(ev.text && ev.text.length>buffer.length) buffer=ev.text; }
+        }
+      }
+      streamEnded = true;
+      if(shown>=buffer.length) finish();      // nothing left to reveal
+    }).catch(err=>{
+      if(err.name!=='AbortError' && !errored){ buffer += (buffer?'\n':'')+'(connection error)'; errored=true; }
+      // on abort: streamEnded stays false -> marked interrupted
+      if(shown>=buffer.length) finish();
+    });
+  });
+}
+
+/* ---------- conversation loop ---------- */
+function enabledAgents(){
+  return AGENTS.filter(a => $('#chip-'+a).querySelector('input').checked);
+}
+function orderFor(list){
+  if(list.length<2) return list.slice();
+  const f=$('#first').value;
+  const base=AGENTS.filter(a=>list.includes(a));
+  if(f==='alt'){
+    roundParity=(roundParity+1)%base.length;
+    return base.slice(roundParity).concat(base.slice(0,roundParity));
+  }
+  const i=base.indexOf(f);
+  return i<0 ? base : base.slice(i).concat(base.slice(0,i));
+}
+const autoOn = ()=> $('#chip-auto').querySelector('input').checked;
+const writeOn = ()=> $('#chip-write').querySelector('input').checked;
+
+async function converse(){
+  if(running) return;
+  running=true; stopRequested=false; updateControls();
+  try{
+    let first=true;
+    do{
+      let order, directed=false;
+      if(first && pendingTargets){ order=pendingTargets.slice(); pendingTargets=null; directed=true; }
+      else {
+        const en=enabledAgents();
+        if(!en.length) break;
+        order=orderFor(en);
+      }
+      first=false;
+      for(const agent of order){
+        if(stopRequested) throw 'stop';
+        await streamAgent(agent);
+        if(stopRequested) throw 'stop';
+      }
+      if(directed) break;   // direct-address: non-targeted AIs stay silent but see the replies
+    } while(autoOn() && !stopRequested);
+  }catch(e){ /* interrupted */ }
+  running=false; currentAbort=null; updateControls();
+}
+
+function bargeIn(){                 // interrupt current generation; they wait for you
+  stopRequested = true;
+  if(currentAbort) currentAbort.abort();
+}
+const waitIdle = ()=> new Promise(r=>{ const i=setInterval(()=>{ if(!running){clearInterval(i);r();} },25); });
+
+function uniqueAgents(names){
+  return [...new Set(names.map(x=>x.toLowerCase()))];
+}
+function detectMention(t){
+  const s=t.trim();
+  // Explicit leading @mentions are stripped: "@claude and @grok, compare this".
+  let m=s.match(/^(?:\s*(?:(?:and|plus)|[,&+])?\s*@(claude|codex|grok)\b)+[\s,:.!?—-]*/i);
+  if(m){
+    const agents=uniqueAgents([...m[0].matchAll(/@(claude|codex|grok)\b/gi)].map(x=>x[1]));
+    return {agents, text:s.slice(m[0].length).trim()};
+  }
+  // Natural direct address keeps the names in the transcript. Supports one,
+  // a pair, or all three: "Claude and Grok, ..." / "Claude, Codex, and Grok, ...".
+  m=s.match(/^(?:claude|codex|grok)\b(?:(?:\s*,\s*(?:and\s+)?|\s+(?:and|plus)\s+|\s*&\s*|\s*\+\s*)(?:claude|codex|grok)\b){0,2}[\s,:.!?—-]+\S/i);
+  if(m){
+    const agents=uniqueAgents([...m[0].matchAll(/\b(claude|codex|grok)\b/gi)].map(x=>x[1]));
+    return {agents, text:s};
+  }
+  return null;
+}
+
+async function send(){
+  const raw = input.value.trim();
+  if(running){ bargeIn(); await waitIdle(); }   // barge in first
+  if(!raw) return;                               // pure interrupt: wait for user
+  const mention = detectMention(raw);
+  transcript.push({name:'user', text: mention?mention.text:raw});
+  pendingTargets = mention ? mention.agents : null;
+  input.value=''; autosize();
+  if(log.querySelector('.empty')) wrapEl().innerHTML='';   // clear placeholder on first message
+  wrapEl().appendChild(finalBubble(transcript[transcript.length-1])); autoscroll(); save();
+  converse();
+}
+
+/* ---------- controls ---------- */
+function updateControls(){
+  if(running){
+    sendBtn.textContent='Stop'; sendBtn.classList.add('stop');
+    $('#status').textContent = autoOn() ? '● auto-riffing — type to barge in' : '● generating — type to barge in';
+    $('#riff').disabled=true;
+  } else {
+    sendBtn.textContent='Send'; sendBtn.classList.remove('stop');
+    $('#status').textContent=''; $('#riff').disabled=false;
+  }
+}
+sendBtn.onclick = ()=>{ if(running && !input.value.trim()) bargeIn(); else send(); };
+$('#riff').onclick = ()=>{ if(!running && transcript.length) converse(); };
+
+// remember model/effort selections across reloads
+$('#claudeEffort').onchange = ()=> localStorage.setItem('rt-claude-effort', $('#claudeEffort').value);
+$('#cmodel').onchange = ()=>{ localStorage.setItem('rt-cmodel', $('#cmodel').value); rebuildClaudeEffort(); };
+$('#codexModel').onchange = ()=>{ localStorage.setItem('rt-codexmodel', $('#codexModel').value); rebuildCodexEffort(); };
+$('#codexEffort').onchange = ()=> localStorage.setItem('rt-codex-effort', $('#codexEffort').value);
+$('#grokModel').onchange = ()=>{ localStorage.setItem('rt-grokmodel', $('#grokModel').value); rebuildGrokEffort(); };
+$('#grokEffort').onchange = ()=> localStorage.setItem('rt-grok-effort', $('#grokEffort').value);
+
+// Every effort selector tracks the selected model's advertised capabilities.
+function rebuildClaudeEffort(){
+  const sel = $('#claudeEffort');
+  const available = claudeLevelsMap[$('#cmodel').value] || [];
+  const order = ['low','medium','high','xhigh','max','ultracode'];
+  const levels = order.filter(x=>available.includes(x)).concat(available.filter(x=>!order.includes(x)));
+  const prev = sel.value || localStorage.getItem('rt-claude-effort') || '';
+  sel.innerHTML = `<option value="">Claude eff: default${available.length?'':' (no model control)'}</option>`;
+  levels.forEach(l=>{ const o=document.createElement('option'); o.value=l; o.textContent='Claude eff: '+l; sel.appendChild(o); });
+  sel.value = [...sel.options].some(o=>o.value===prev) ? prev : '';
+}
+
+function rebuildCodexEffort(){
+  const sel = $('#codexEffort');
+  const slug = $('#codexModel').value || codexDefaultSlug;
+  const levels = codexLevelsMap[slug] || [];
+  const modelDefault = $('#codexModel').value
+    ? (codexDefaultsMap[slug] || '') : codexConfiguredEffort;
+  const prev = sel.value || localStorage.getItem('rt-codex-effort') || '';
+  sel.innerHTML = `<option value="">Codex eff: default${modelDefault?' ('+modelDefault+')':''}</option>`;
+  levels.forEach(l=>{ const o=document.createElement('option'); o.value=l; o.textContent='Codex eff: '+l; sel.appendChild(o); });
+  sel.value = [...sel.options].some(o=>o.value===prev) ? prev : '';
+}
+
+function rebuildGrokEffort(){
+  const sel = $('#grokEffort');
+  const slug = $('#grokModel').value || grokDefaultSlug;
+  const available = grokLevelsMap[slug] || ['low','medium','high'];
+  const levels = ['low','medium','high'].filter(x=>available.includes(x))
+    .concat(available.filter(x=>!['low','medium','high'].includes(x)));
+  const prev = sel.value || localStorage.getItem('rt-grok-effort') || '';
+  sel.innerHTML = '<option value="">Grok eff: default</option>';
+  levels.forEach(l=>{ const o=document.createElement('option'); o.value=l; o.textContent='Grok eff: '+l; sel.appendChild(o); });
+  sel.value = [...sel.options].some(o=>o.value===prev) ? prev : '';
+}
+
+input.addEventListener('keydown', e=>{
+  if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); }
+  else if(e.key==='Escape' && running){ bargeIn(); }
+});
+function autosize(){ input.style.height='auto'; input.style.height=Math.min(input.scrollHeight,200)+'px'; }
+input.addEventListener('input', autosize);
+
+document.querySelectorAll('.chip').forEach(chip=>{
+  chip.onclick = e=>{
+    if(e.target.tagName!=='INPUT'){ const cb=chip.querySelector('input'); cb.checked=!cb.checked; }
+    chip.classList.toggle('on', chip.querySelector('input').checked);
+    if(chip.id==='chip-auto') updateControls();
+    if(chip.id==='chip-write') localStorage.setItem('rt-write', chip.querySelector('input').checked?'1':'');
+  };
+});
+if(localStorage.getItem('rt-write')==='1'){
+  $('#chip-write').querySelector('input').checked = true;
+  $('#chip-write').classList.add('on');
+}
+
+$('#reset').onclick = newConversation;
+$('#restart').onclick = async ()=>{
+  if(!confirm('Restart the AI Roundtable server?\n(reloads code + provider model/effort catalogs; your saved conversations are safe)')) return;
+  if(running) bargeIn();
+  try{ await fetch('/api/restart',{method:'POST'}); }catch{}
+  $('#status').textContent = '● restarting server…';
+  const t0 = Date.now();
+  const poll = async ()=>{
+    try{ const r = await fetch('/api/config',{cache:'no-store'}); if(r.ok){ location.reload(); return; } }catch{}
+    if(Date.now()-t0 < 25000) setTimeout(poll, 500);
+    else $('#status').textContent = '⚠ server didn’t come back — check the terminal';
+  };
+  setTimeout(poll, 900);
+};
+$('#export').onclick = ()=>{
+  const md = transcript.map(m=>`## ${DISPLAY[m.name]||DISPLAY.user}${m.model?` (${modelTag(m.model)})`:''}\n\n${m.text}`).join('\n\n---\n\n');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([md],{type:'text/markdown'}));
+  a.download='roundtable.md'; a.click();
+};
+
+/* ---------- conversation history drawer ---------- */
+function openDrawer(){ refreshList(); $('#drawer').classList.add('show'); $('#overlay').classList.add('show'); }
+function closeDrawer(){ $('#drawer').classList.remove('show'); $('#overlay').classList.remove('show'); }
+$('#menu').onclick = openDrawer;
+$('#overlay').onclick = closeDrawer;
+$('#newconv').onclick = ()=>{ newConversation(); closeDrawer(); };
+
+function ago(sec){
+  if(!sec) return '';
+  const s = Math.max(1, Math.floor(Date.now()/1000 - sec));
+  if(s<60) return 'just now';
+  const m=Math.floor(s/60); if(m<60) return m+'m ago';
+  const h=Math.floor(m/60); if(h<24) return h+'h ago';
+  const d=Math.floor(h/24); if(d<7) return d+'d ago';
+  return new Date(sec*1000).toLocaleDateString();
+}
+function renderList(list){
+  convCache = list;
+  const box = $('#convlist');
+  if(!list.length){ box.innerHTML='<div class="conv-empty">No saved conversations yet.<br>Start typing to create one.</div>'; return; }
+  box.innerHTML='';
+  list.forEach((c,i)=>{
+    if(!c.pinned && i>0 && list[i-1].pinned){          // divider between pinned group and the rest
+      const dv=document.createElement('div'); dv.className='conv-divider'; box.appendChild(dv);
+    }
+    const el = document.createElement('div');
+    el.className = 'conv' + (c.id===currentId?' active':'') + (c.pinned?' pinned':'');
+    el.innerHTML = `<div class="t"></div><div class="m">${c.count} msg · ${ago(c.updatedAt)}</div>
+      <button class="pin" title="${c.pinned?'Unpin':'Pin'}">${c.pinned?'★':'☆'}</button>
+      <button class="del" title="Delete">🗑</button>`;
+    el.querySelector('.t').textContent = c.title || 'Untitled';
+    el.onclick = e=>{ if(!e.target.closest('.del') && !e.target.closest('.pin')) openConversation(c.id); };
+    el.ondblclick = ()=> renameConversation(c.id, c.title);
+    el.querySelector('.pin').onclick = e=>{ e.stopPropagation(); togglePin(c.id, !c.pinned); };
+    el.querySelector('.del').onclick = e=>{ e.stopPropagation(); if(confirm('Delete this conversation?')) deleteConversation(c.id); };
+    box.appendChild(el);
+  });
+}
+async function togglePin(id, pinned){
+  try{ await fetch('/api/conversations/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({pinned})}); }catch{}
+  refreshList();
+}
+async function openConversation(id){
+  if(id===currentId){ closeDrawer(); return; }
+  if(running) bargeIn();
+  try{
+    const doc = await (await fetch('/api/conversations/'+id)).json();
+    if(doc && doc.id){
+      currentId=doc.id; currentTitle=doc.title; transcript=normalizeTranscript(doc.messages);
+      localStorage.setItem(CUR, currentId); localStorage.setItem(STORE, JSON.stringify(transcript));
+      render(); renderList(convCache); closeDrawer(); clearActivity();
+    }
+  }catch{}
+}
+function newConversation(){
+  if(running) bargeIn();
+  transcript=[]; currentId=null; currentTitle=null;
+  localStorage.removeItem(CUR); localStorage.setItem(STORE,'[]');
+  render(); refreshList(); clearActivity();
+}
+async function deleteConversation(id){
+  try{ await fetch('/api/conversations/'+id,{method:'DELETE'}); }catch{}
+  if(id===currentId) newConversation();
+  refreshList();
+}
+async function renameConversation(id, cur){
+  const name = prompt('Rename conversation:', cur||'');
+  if(name===null) return;
+  let msgs = transcript;
+  if(id!==currentId){ try{ msgs=normalizeTranscript((await (await fetch('/api/conversations/'+id)).json()).messages); }catch{ return; } }
+  try{
+    await fetch('/api/conversations/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({messages:msgs, title:name.trim()||undefined})});
+    if(id===currentId) currentTitle = name.trim() || currentTitle;
+    refreshList();
+  }catch{}
+}
+
+// workspace folder the agents read from
+async function checkWorkspace(){
+  const p = $('#workspace').value.trim(), st = $('#wsstatus');
+  if(!p){ st.textContent=''; st.title=''; return; }
+  try{
+    const r = await (await fetch('/api/checkdir?path='+encodeURIComponent(p))).json();
+    st.textContent = r.ok ? '✓' : '✗';
+    st.style.color = r.ok ? 'var(--codex)' : 'var(--err)';
+    st.title = r.ok ? ('agents read from: '+r.resolved) : 'folder not found';
+  }catch{ st.textContent=''; }
+}
+let wsTimer;
+$('#workspace').addEventListener('input', ()=>{
+  clearTimeout(wsTimer);
+  wsTimer = setTimeout(()=>{ localStorage.setItem('rt-workspace', $('#workspace').value.trim()); checkWorkspace(); }, 400);
+});
+
+let nameStatusTimer;
+async function saveUserName(){
+  const button=$('#saveUserName'), status=$('#nameStatus');
+  button.disabled=true; status.textContent='…'; status.style.color='var(--muted)';
+  clearTimeout(nameStatusTimer);
+  try{
+    const response=await fetch('/api/config',{method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({userName:$('#userName').value})});
+    const result=await response.json();
+    if(!response.ok) throw new Error(result.error||'could not save name');
+    $('#userName').setCustomValidity('');
+    applyUserName(result.userName);
+    status.textContent='✓'; status.style.color='var(--codex)'; status.title='saved to config.json';
+  }catch(error){
+    status.textContent='✗'; status.style.color='var(--err)'; status.title=error.message;
+    $('#userName').setCustomValidity(error.message); $('#userName').reportValidity();
+  }finally{
+    button.disabled=false;
+    nameStatusTimer=setTimeout(()=>{ status.textContent=''; status.title=''; },3500);
+  }
+}
+$('#saveUserName').onclick = saveUserName;
+$('#userName').addEventListener('input', ()=>$('#userName').setCustomValidity(''));
+$('#userName').addEventListener('keydown', event=>{
+  if(event.key==='Enter'){ event.preventDefault(); saveUserName(); }
+});
+
+fetch('/api/config',{cache:'no-store'}).then(r=>r.json()).then(c=>{
+  applyUserName(c.userName);
+  // Warn if any agent's CLI is missing from PATH.
+  const nativeWindows = c.platform==='windows';
+  $('#workspace').placeholder = nativeWindows ? 'C:\\path\\to\\project' : '/path/to/project';
+  const INSTALL = nativeWindows ? {
+    claude: {name:'Claude Code', cmd:'irm https://claude.ai/install.ps1 | iex', url:'https://code.claude.com/docs/en/getting-started'},
+    codex:  {name:'OpenAI Codex', cmd:'powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"', url:'https://github.com/openai/codex'},
+    grok:   {name:'Grok Build', cmd:'irm https://x.ai/cli/install.ps1 | iex', url:'https://docs.x.ai/build/overview'},
+  } : {
+    claude: {name:'Claude Code', cmd:'curl -fsSL https://claude.ai/install.sh | bash', url:'https://code.claude.com/docs/en/getting-started'},
+    codex:  {name:'OpenAI Codex', cmd:'curl -fsSL https://chatgpt.com/codex/install.sh | sh', url:'https://github.com/openai/codex'},
+    grok:   {name:'Grok Build', cmd:'curl -fsSL https://x.ai/cli/install.sh | bash', url:'https://docs.x.ai/build/overview'},
+  };
+  const missing = Object.keys(INSTALL).filter(k => c.clis && c.clis[k] === false);
+  const banner = $('#clibanner');
+  const notices = nativeWindows ? [
+    'ℹ️ <b>Native Windows:</b> Claude and Grok do not provide an OS-level sandbox. '+
+    'Read-only mode still applies provider permissions and strict instructions; use WSL&nbsp;2 when you need stronger isolation.'
+  ] : [];
+  banner.hidden = !missing.length && !notices.length;
+  banner.classList.toggle('platform-only', nativeWindows && !missing.length);
+  banner.innerHTML = notices.concat(missing.map(k =>
+    `⚠️ <b>${INSTALL[k].name}</b> CLI (<code>${k}</code>) not found — ${INSTALL[k].name} can’t reply. `+
+    `Install with <code>${INSTALL[k].cmd}</code>, log in, then reload this page. `+
+    `<a href="${INSTALL[k].url}" target="_blank" rel="noopener" style="color:var(--muted)">docs</a>`
+  )).join('<br>');
+  missing.forEach(k => { const chip=$('#chip-'+k); if(chip){ chip.classList.remove('on'); chip.querySelector('input').checked=false; } });
+  $('#workspace').value = localStorage.getItem('rt-workspace') || c.cwd || '';
+  checkWorkspace();
+  // Claude model: saved choice, else server default
+  (c.claudeModels||[]).forEach(m=>{ claudeLevelsMap[m.slug] = m.levels || []; });
+  const savedC = localStorage.getItem('rt-cmodel');
+  const wantC = ([savedC, c.claudeModel].find(v=>v && [...$('#cmodel').options].some(o=>o.value===v)));
+  if(wantC) $('#cmodel').value = wantC;
+  rebuildClaudeEffort();
+  // Codex model: populate dropdown from the CLI's model cache
+  const sel = $('#codexModel');
+  sel.querySelector('option[value=""]').textContent = 'Codex: default' + (c.codexDefault?` (${c.codexDefault})`:'');
+  codexDefaultSlug = c.codexDefault || '';
+  codexConfiguredEffort = c.codexConfiguredEffort || '';
+  (c.codexModels||[]).forEach(m=>{
+    codexLevelsMap[m.slug] = m.levels || [];
+    codexDefaultsMap[m.slug] = m.defaultEffort || '';
+    const o=document.createElement('option'); o.value=m.slug; o.textContent='Codex: '+m.name; sel.appendChild(o);
+  });
+  const savedX = localStorage.getItem('rt-codexmodel');
+  if(savedX!==null && [...sel.options].some(o=>o.value===savedX)) sel.value = savedX;
+  rebuildCodexEffort();   // build Codex effort options for the selected model
+  // Grok model/effort metadata comes from Grok Build's own cache.
+  const gsel = $('#grokModel');
+  grokDefaultSlug = c.grokModel || 'grok-4.5';
+  gsel.querySelector('option[value=""]').textContent = 'Grok: default ('+grokDefaultSlug+')';
+  (c.grokModels||[]).forEach(m=>{
+    grokLevelsMap[m.slug] = m.levels || [];
+    const o=document.createElement('option'); o.value=m.slug; o.textContent='Grok: '+m.name; gsel.appendChild(o);
+  });
+  const savedG = localStorage.getItem('rt-grokmodel');
+  if(savedG!==null && [...gsel.options].some(o=>o.value===savedG)) gsel.value = savedG;
+  rebuildGrokEffort();
+}).catch(()=>{});
+
+async function boot(){
+  loadStore(); render(); updateControls(); input.focus();   // instant from local cache
+  try{
+    const list = await (await fetch('/api/conversations')).json();
+    renderList(list);
+    let openId = null;
+    if(currentId && list.find(c=>c.id===currentId)) openId = currentId;         // reopen last
+    else if(!transcript.length && list.length) openId = list[0].id;             // else most recent
+    if(openId){
+      const doc = await (await fetch('/api/conversations/'+openId)).json();
+      if(doc && doc.id){
+        currentId=doc.id; currentTitle=doc.title; transcript=normalizeTranscript(doc.messages);
+        localStorage.setItem(CUR, currentId); localStorage.setItem(STORE, JSON.stringify(transcript));
+        render(); renderList(list);
+      }
+    }
+  }catch{ /* offline — keep local cache */ }
+}
+boot();
+</script>
+</body>
+</html>
