@@ -347,6 +347,16 @@ def _resolve_cli_command(command):
         companion = os.path.splitext(resolved)[0] + ".ps1"
         powershell = _windows_powershell_path()
         if powershell and os.path.isfile(companion):
+            # Windows PowerShell 5.1 cannot faithfully forward empty arguments
+            # or embedded quotes from a script to a native executable. This app
+            # never generates either (Windows paths cannot contain quotes and
+            # optional CLI values are omitted), so reject them explicitly.
+            for value in command[1:]:
+                value = str(value)
+                if not value or any(char in value for char in ('"', "\r", "\n", "\0")):
+                    raise ValueError(
+                        "Windows npm-shim arguments cannot be empty or contain quotes/control characters"
+                    )
             return [
                 powershell, "-NoLogo", "-NoProfile", "-NonInteractive",
                 "-ExecutionPolicy", "Bypass", "-File", WINDOWS_SHIM_BRIDGE,

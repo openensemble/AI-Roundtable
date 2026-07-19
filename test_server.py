@@ -345,6 +345,20 @@ class ProcessPortabilityTests(unittest.TestCase):
             with self.assertRaisesRegex(FileNotFoundError, "official Windows executable"):
                 server._resolve_cli_command([shim, "&calc.exe"])
 
+    def test_windows_powershell_shim_rejects_unrepresentable_arguments(self):
+        shim = os.path.abspath(os.path.join(tempfile.gettempdir(), "agent.cmd"))
+        companion = os.path.splitext(shim)[0] + ".ps1"
+        powershell = os.path.abspath(os.path.join(tempfile.gettempdir(), "powershell.exe"))
+        for value in ("", 'embedded"quote', "line\nbreak", "nul\0value"):
+            with (self.subTest(value=value),
+                  mock.patch.object(server, "_is_windows", return_value=True),
+                  mock.patch.object(server, "_cli_path", return_value=shim),
+                  mock.patch.object(server, "_windows_powershell_path", return_value=powershell),
+                  mock.patch.object(server.os.path, "isfile",
+                                    side_effect=lambda path: path == companion)):
+                with self.assertRaisesRegex(ValueError, "cannot be empty"):
+                    server._resolve_cli_command([shim, value])
+
     def test_prepare_invocation_writes_utf8_prompt_and_always_cleans_up(self):
         prompt = "Zażółć gęślą jaźń — 你好 🚀"
         prompt_path = None
@@ -546,16 +560,15 @@ class ProcessPortabilityTests(unittest.TestCase):
     @unittest.skipUnless(os.name == "nt", "native Windows .cmd behavior")
     def test_real_cmd_shim_preserves_argument_boundaries(self):
         expected = [
-            "", "plain", "space value", "amp&ersand", "paren(value)", "caret^value",
-            "percent%PATH%value", "bang!value", 'embedded"quote', "Zażółć 你好",
-            "trailing\\",
+            "plain", "space value", "amp&ersand", "paren(value)", "caret^value",
+            "percent%PATH%value", "bang!value", "Zażółć 你好", "trailing\\",
         ]
         with tempfile.TemporaryDirectory(prefix="roundtable cmd & ") as directory:
             script = os.path.join(directory, "echo_args.py")
             shim = os.path.join(directory, "roundtable-echo.cmd")
             ps1 = os.path.join(directory, "roundtable-echo.ps1")
             sentinel = os.path.join(directory, "must-not-exist.txt")
-            expected.append(f'& echo compromised > "{sentinel}"')
+            expected.append(f"& echo compromised > {sentinel}")
             with open(script, "w", encoding="utf-8") as fh:
                 fh.write(
                     "import json, sys\n"
