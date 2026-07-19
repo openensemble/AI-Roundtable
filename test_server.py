@@ -322,18 +322,21 @@ class ProcessPortabilityTests(unittest.TestCase):
               mock.patch.object(server.os.path, "isfile",
                                 side_effect=lambda path: path in (ps1, server.WINDOWS_SHIM_BRIDGE))):
             self.assertEqual(shim, server._cli_path("codex"))
-            command, shell = server._resolve_cli_command(["codex", "exec", "--json"])
+            command, environment = server._resolve_cli_command(["codex", "exec", "--json"])
         self.assertEqual(powershell, command[0])
         self.assertEqual(server.WINDOWS_SHIM_BRIDGE, command[command.index("-File") + 1])
-        self.assertEqual(ps1, command[command.index("-File") + 2])
-        self.assertEqual(["exec", "--json"], command[-2:])
-        self.assertFalse(shell)
+        self.assertEqual(server.WINDOWS_SHIM_BRIDGE, command[-1])
+        self.assertEqual(ps1, environment[server.WINDOWS_SHIM_PATH_ENV])
+        self.assertEqual(
+            ["exec", "--json"],
+            json.loads(environment[server.WINDOWS_SHIM_ARGS_ENV]),
+        )
 
         with (mock.patch.object(server, "_is_windows", return_value=True),
               mock.patch.object(server, "_cli_path", return_value=exe)):
-            command, shell = server._resolve_cli_command(["codex", "exec"])
+            command, environment = server._resolve_cli_command(["codex", "exec"])
         self.assertEqual(exe, command[0])
-        self.assertFalse(shell)
+        self.assertEqual({}, environment)
 
     def test_windows_rejects_batch_launcher_without_safe_companion(self):
         shim = os.path.abspath(os.path.join(tempfile.gettempdir(), "unsafe.cmd"))
@@ -543,7 +546,7 @@ class ProcessPortabilityTests(unittest.TestCase):
     @unittest.skipUnless(os.name == "nt", "native Windows .cmd behavior")
     def test_real_cmd_shim_preserves_argument_boundaries(self):
         expected = [
-            "plain", "space value", "amp&ersand", "paren(value)", "caret^value",
+            "", "plain", "space value", "amp&ersand", "paren(value)", "caret^value",
             "percent%PATH%value", "bang!value", 'embedded"quote', "Zażółć 你好",
             "trailing\\",
         ]

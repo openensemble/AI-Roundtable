@@ -40,6 +40,8 @@ _CLI_PORT = sys.argv[1] if __name__ == "__main__" and len(sys.argv) > 1 else 876
 PORT = int(os.environ.get("ROUNDTABLE_PORT", _CLI_PORT))
 HERE = os.path.dirname(os.path.abspath(__file__))
 WINDOWS_SHIM_BRIDGE = os.path.join(HERE, "windows_shim.ps1")
+WINDOWS_SHIM_PATH_ENV = "AICONVO_SHIM_PATH"
+WINDOWS_SHIM_ARGS_ENV = "AICONVO_SHIM_ARGS_JSON"
 
 
 def _absolute_user_path(value):
@@ -335,7 +337,7 @@ def _resolve_cli_command(command):
                 f"{command[0]} has no native executable or safe PowerShell shim; "
                 "install the provider's official Windows executable"
             )
-        return command, False
+        return command, {}
     command[0] = resolved
 
     # npm creates a same-stem .ps1 beside each .cmd shim. A fixed local bridge
@@ -348,13 +350,15 @@ def _resolve_cli_command(command):
             return [
                 powershell, "-NoLogo", "-NoProfile", "-NonInteractive",
                 "-ExecutionPolicy", "Bypass", "-File", WINDOWS_SHIM_BRIDGE,
-                companion, *command[1:],
-            ], False
+            ], {
+                WINDOWS_SHIM_PATH_ENV: companion,
+                WINDOWS_SHIM_ARGS_ENV: json.dumps(command[1:], ensure_ascii=False),
+            }
         raise OSError(
             f"{resolved} is a batch launcher without a safe PowerShell companion; "
             "install the provider's official Windows executable"
         )
-    return command, False
+    return command, {}
 
 
 def _popen_platform_kwargs():
@@ -364,9 +368,14 @@ def _popen_platform_kwargs():
 
 
 def _spawn_cli(command, **kwargs):
-    command, _ = _resolve_cli_command(command)
+    command, environment_updates = _resolve_cli_command(command)
     options = _popen_platform_kwargs()
     options.update(kwargs)
+    if environment_updates:
+        requested_env = options.get("env")
+        launch_env = dict(os.environ if requested_env is None else requested_env)
+        launch_env.update(environment_updates)
+        options["env"] = launch_env
     return subprocess.Popen(command, **options)
 
 
