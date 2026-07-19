@@ -20,5 +20,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - name: Install and launch official Codex CLI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          irm https://chatgpt.com/codex/install.ps1 | iex
+          python -c "import subprocess, server; p = server._spawn_cli(['codex', '--version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE); out, err = p.communicate(timeout=30); assert p.returncode == 0, err.decode('utf-8', 'replace'); print(out.decode('utf-8', 'replace').strip())"
       - name: Run unit and platform tests
         run: python -m unittest -v
