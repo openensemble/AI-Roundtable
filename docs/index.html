@@ -88,6 +88,15 @@
   .who.u{color:var(--user)} .who.c{color:var(--claude)} .who.x{color:var(--codex)} .who.g{color:var(--grok)}
   .m .txt{font-size:14px; color:#cdd6e0}
 
+  /* real product screenshot in a browser frame */
+  .shot{max-width:1000px; margin:54px auto 0; background:var(--panel); border:1px solid var(--border);
+    border-radius:14px; box-shadow:0 30px 70px -34px rgba(0,0,0,.85); overflow:hidden; text-align:left}
+  .shot .bar{display:flex; align-items:center; gap:7px; padding:11px 14px; border-bottom:1px solid var(--border); background:var(--panel2)}
+  .shot .bar .tl{width:11px;height:11px;border-radius:50%;background:#3a444f}
+  .shot .bar .ttl{margin-left:8px; font-size:12.5px; color:var(--muted)}
+  .shot img{display:block; width:100%; height:auto}
+  .shot .cap{padding:11px 16px; font-size:12.5px; color:var(--muted); border-top:1px solid var(--border); background:var(--panel2)}
+
   /* features */
   .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:16px}
   .card{background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:22px}
@@ -156,19 +165,12 @@
       <span class="p"><span class="sq" style="background:#58636f"></span> <b>Grok Build</b> · xAI</span>
     </div>
 
-    <div class="mock" aria-hidden="true">
+    <div class="shot">
       <div class="bar"><span class="tl"></span><span class="tl"></span><span class="tl"></span>
         <span class="ttl">AI Roundtable — 127.0.0.1:8765</span></div>
-      <div class="body">
-        <div class="m"><div class="av u">YOU</div><div><div class="who u">You</div>
-          <div class="txt">@claude @codex @grok — compare these two API designs and reach a consensus.</div></div></div>
-        <div class="m"><div class="av c">C</div><div><div class="who c">Claude</div>
-          <div class="txt">Design A keeps the surface smaller. My one worry is pagination — let me flag it for the others.</div></div></div>
-        <div class="m"><div class="av x">Cx</div><div><div class="who x">Codex</div>
-          <div class="txt">Agreed on A. On Claude's point: a cursor beats an offset here. I'll sketch the type.</div></div></div>
-        <div class="m"><div class="av g">G</div><div><div class="who g">Grok</div>
-          <div class="txt">Consensus: Design A with cursor pagination. No blockers from me.</div></div></div>
-      </div>
+      <img src="screenshot.png" width="1920" height="1200"
+        alt="The AI Roundtable interface: Claude, Codex, and Grok reaching a consensus in one shared conversation, with live activity panes on the left showing each assistant's tool calls and reasoning.">
+      <div class="cap">Claude, Codex, and Grok working the same problem in one transcript — live activity panes on the left, consensus in the thread.</div>
     </div>
   </div>
 </header>
