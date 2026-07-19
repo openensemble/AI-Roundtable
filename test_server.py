@@ -469,8 +469,9 @@ class ProcessPortabilityTests(unittest.TestCase):
         proc.poll.return_value = None
         proc.wait.return_value = 0
         with (mock.patch.object(server, "_is_windows", return_value=False),
-              mock.patch.object(server.os, "getpgid", return_value=1357) as getpgid,
-              mock.patch.object(server.os, "killpg") as killpg):
+              mock.patch.object(server.os, "getpgid", return_value=1357,
+                                create=True) as getpgid,
+              mock.patch.object(server.os, "killpg", create=True) as killpg):
             server._kill(proc)
         getpgid.assert_called_once_with(2468)
         killpg.assert_called_once_with(1357, server.signal.SIGTERM)
@@ -553,7 +554,11 @@ class ProcessPortabilityTests(unittest.TestCase):
             sentinel = os.path.join(directory, "must-not-exist.txt")
             expected.append(f'& echo compromised > "{sentinel}"')
             with open(script, "w", encoding="utf-8") as fh:
-                fh.write("import json, sys\nprint(json.dumps(sys.argv[1:], ensure_ascii=False))\n")
+                fh.write(
+                    "import json, sys\n"
+                    "data = (json.dumps(sys.argv[1:], ensure_ascii=False) + '\\n').encode('utf-8')\n"
+                    "sys.stdout.buffer.write(data)\n"
+                )
             with open(shim, "w", encoding="utf-8", newline="") as fh:
                 fh.write('@echo off\r\necho unsafe batch shim must not run\r\nexit /b 91\r\n')
             with open(ps1, "w", encoding="utf-8", newline="") as fh:
