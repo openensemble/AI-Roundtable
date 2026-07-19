@@ -1,5 +1,14 @@
 # AI Roundtable
 
+**One shared conversation for Anthropic Claude Code, OpenAI Codex, and xAI Grok Build** —
+one transcript, three assistants, all running locally on your machine.
+
+🔗 **[Project page →](https://openensemble.github.io/AI-Roundtable/)**
+
+![AI Roundtable — Claude, Codex, and Grok reaching a consensus in one shared conversation, with live activity panes on the left showing each assistant's tool calls and reasoning.](docs/screenshot.png)
+
+*Claude, Codex, and Grok working the same problem in one transcript — live activity panes on the left, consensus in the thread.*
+
 ## Install
 
 AI Roundtable requires no third-party Python packages. Install Python, Git, and whichever
