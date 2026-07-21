@@ -56,6 +56,9 @@
     background:var(--panel2); color:var(--text); border:1px solid var(--border);
     border-radius:8px; padding:6px 10px; font-size:13px; cursor:pointer;
   }
+  #providerControls{display:contents}
+  .provider-config{display:inline-flex;align-items:center;gap:10px}
+  .provider-config[hidden]{display:none}
   button:hover:not(:disabled){border-color:#3d4b5c}
   button:disabled{opacity:.4; cursor:not-allowed}
   .btn-ghost{background:transparent}
@@ -115,6 +118,14 @@
   .actlog .actdivider{border-top:1px dashed var(--border); margin:10px 0}
   .actlog .actempty{color:var(--muted); opacity:.6; font-style:italic}
   @media (max-width:900px){ #activity{display:none} }
+  @media (max-width:600px){
+    header{padding:8px;gap:7px;flex-wrap:nowrap}
+    header h1,header>.spacer{display:none}
+    .controls{flex:1;flex-wrap:nowrap;overflow-x:auto;gap:7px;padding-bottom:3px;scrollbar-width:thin}
+    .controls>*{flex:0 0 auto}
+    .hint>span:first-child{display:none}
+    #workspace{width:min(62vw,260px)}
+  }
 
   footer{border-top:1px solid var(--border); background:var(--panel); padding:12px 0}
   .composer{max-width:820px; margin:0 auto; padding:0 18px; display:flex; gap:10px; align-items:flex-end}
@@ -138,6 +149,7 @@
   #nameStatus{font-size:12px;width:12px;text-align:center}
   #workspace{background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--text);
     font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;padding:3px 7px;width:min(44vw,320px)}
+  #pickWorkspace{font-size:11.5px;padding:3px 7px;border-radius:6px;white-space:nowrap}
   #wsstatus{font-size:12px;width:12px;text-align:center}
 
   #menu{font-size:16px;padding:6px 11px;line-height:1}
@@ -161,6 +173,38 @@
   .conv .del:hover{opacity:1;color:var(--err);background:var(--bg)}
   .conv-divider{height:1px;background:var(--border);margin:8px 6px;opacity:.6}
   .conv-empty{color:var(--muted);font-size:13px;text-align:center;padding:24px 10px;line-height:1.6}
+
+  #remoteDialog{width:min(92vw,560px);background:var(--panel);color:var(--text);border:1px solid var(--border);
+    border-radius:14px;padding:0;box-shadow:0 18px 60px rgba(0,0,0,.55)}
+  #remoteDialog::backdrop{background:rgba(0,0,0,.62)}
+  .dialog-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;
+    border-bottom:1px solid var(--border);font-weight:600}
+  .dialog-body{padding:16px}
+  .dialog-body p{margin:0 0 13px}
+  .remote-link{display:grid;gap:8px;margin:12px 0}
+  .remote-link[hidden]{display:none}
+  .remote-link-row{display:flex;gap:8px;align-items:center}
+  .remote-address{flex:1;min-width:0;background:var(--panel2);border:1px solid var(--border);border-radius:7px;
+    color:var(--codex);font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;padding:7px 9px;
+    overflow-wrap:anywhere;text-decoration:none}
+  .remote-address:hover{text-decoration:underline}
+  .lan-password-box{margin:13px 0;padding:12px;background:var(--panel2);border:1px solid var(--border);border-radius:9px}
+  .lan-password-box p{font-size:12px;color:var(--muted);margin:0 0 9px}
+  .lan-password-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .lan-password-fields input{min-width:0;width:100%;box-sizing:border-box;background:var(--bg);color:var(--text);
+    border:1px solid var(--border);border-radius:7px;padding:8px 9px;font:13px inherit}
+  .lan-password-fields input:focus{outline:none;border-color:var(--codex)}
+  .lan-password-status{min-height:17px;margin-top:7px;font-size:12px;color:var(--err)}
+  .remote-warning{font-size:12.5px;color:#e3b341}
+  .dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+  #toggleRemote.on{border-color:var(--err);color:var(--err)}
+  #lanLoginDialog{width:min(90vw,420px);background:var(--panel);color:var(--text);border:1px solid var(--border);
+    border-radius:14px;padding:0;box-shadow:0 18px 60px rgba(0,0,0,.55)}
+  #lanLoginDialog::backdrop{background:rgba(0,0,0,.82)}
+  #lanLoginPassword{width:100%;box-sizing:border-box;background:var(--panel2);color:var(--text);
+    border:1px solid var(--border);border-radius:8px;padding:10px;font:14px inherit;margin-top:4px}
+  #lanLoginButton,#lanLoginRefresh{min-height:44px;min-width:88px}
+  @media (max-width:520px){.lan-password-fields{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -169,6 +213,42 @@
   <div class="drawer-head"><span>Conversations</span><button class="btn-ghost" id="newconv">＋ New</button></div>
   <div id="convlist"></div>
 </aside>
+<dialog id="remoteDialog" aria-labelledby="remoteTitle">
+  <div class="dialog-head"><span id="remoteTitle">📱 LAN access</span><button class="btn-ghost" id="closeRemote" type="button" aria-label="Close">✕</button></div>
+  <div class="dialog-body">
+    <p id="remoteSummary"></p>
+    <p style="font-size:12px;color:var(--muted)">Browsers on the server computer never need the LAN password.</p>
+    <div class="remote-link" id="remoteLink" aria-label="LAN access links" hidden></div>
+    <div class="lan-password-box" id="lanPasswordSetup" hidden>
+      <p id="lanPasswordHint">Set a LAN password before enabling access.</p>
+      <div class="lan-password-fields">
+        <input id="lanPassword" type="password" autocomplete="new-password" enterkeyhint="next" placeholder="LAN password" aria-label="LAN password">
+        <input id="lanPasswordConfirm" type="password" autocomplete="new-password" enterkeyhint="done" placeholder="Confirm password" aria-label="Confirm LAN password">
+      </div>
+      <div class="lan-password-status" id="lanPasswordStatus" aria-live="polite"></div>
+    </div>
+    <p class="remote-warning">LAN access uses ordinary, unencrypted HTTP. Use it only on a trusted private network: someone monitoring that network could observe the password or session. Never port-forward this server to the internet.</p>
+    <p style="font-size:12px;color:var(--muted)">The server computer’s operating system may ask you to allow Python through its private-network firewall. The native folder picker remains available only on the server computer.</p>
+    <div class="dialog-actions">
+      <button class="btn-ghost" id="dismissRemote" type="button">Close</button>
+      <button class="btn-ghost" id="saveLanPassword" type="button" hidden>Change password</button>
+      <button id="toggleRemote" type="button">Enable LAN access</button>
+    </div>
+  </div>
+</dialog>
+<dialog id="lanLoginDialog" aria-labelledby="lanLoginTitle">
+  <div class="dialog-head"><span id="lanLoginTitle">📱 LAN login</span></div>
+  <div class="dialog-body">
+    <p id="lanLoginSummary">Enter the LAN password set on the computer running AI Roundtable.</p>
+    <input id="lanLoginPassword" type="password" autocomplete="current-password" enterkeyhint="done" placeholder="LAN password" aria-label="LAN password">
+    <div class="lan-password-status" id="lanLoginStatus" aria-live="polite"></div>
+    <p class="remote-warning">Only sign in on a trusted private network. LAN traffic is not encrypted.</p>
+    <div class="dialog-actions">
+      <button class="btn-ghost" id="lanLoginRefresh" type="button" hidden>Check again</button>
+      <button id="lanLoginButton" type="button">Sign in</button>
+    </div>
+  </div>
+</dialog>
 <header>
   <button class="btn-ghost" id="menu" title="Conversation history">☰</button>
   <h1>AI&nbsp;Roundtable <span style="color:var(--muted);font-weight:400">·</span> <span id="headerUserName">You</span> + <span class="dot">Claude</span> + <span class="dot2">Codex</span> + <span class="dot3">Grok</span></h1>
@@ -187,26 +267,35 @@
         <option value="alt">alternate</option>
       </select>
     </label>
-    <select id="cmodel" title="Claude model">
-      <option value="claude-opus-4-8">Opus 4.8 (deep)</option>
-      <option value="claude-fable-5">Fable 5</option>
-      <option value="claude-sonnet-5">Sonnet 5 (fast)</option>
-      <option value="claude-haiku-4-5-20251001">Haiku 4.5 (quick)</option>
-    </select>
-    <select id="claudeEffort" title="Claude reasoning effort — options match the selected Claude model">
-      <option value="">Claude eff: default</option>
-    </select>
-    <select id="codexModel" title="Codex model"><option value="">Codex: default</option></select>
-    <select id="codexEffort" title="Codex reasoning effort — options match the selected Codex model">
-      <option value="">Codex eff: default</option>
-    </select>
-    <select id="grokModel" title="Grok model"><option value="">Grok: default</option></select>
-    <select id="grokEffort" title="Grok reasoning effort — options match the selected Grok model">
-      <option value="">Grok eff: default</option>
-    </select>
+    <span id="providerControls">
+      <span class="provider-config" data-agent="claude">
+        <select id="cmodel" title="Claude model">
+          <option value="claude-opus-4-8">Claude: Opus 4.8 (deep)</option>
+          <option value="claude-fable-5">Claude: Fable 5</option>
+          <option value="claude-sonnet-5">Claude: Sonnet 5 (fast)</option>
+          <option value="claude-haiku-4-5-20251001">Claude: Haiku 4.5 (quick)</option>
+        </select>
+        <select id="claudeEffort" title="Claude reasoning effort — options match the selected Claude model">
+          <option value="">Claude eff: default</option>
+        </select>
+      </span>
+      <span class="provider-config" data-agent="codex">
+        <select id="codexModel" title="Codex model"><option value="">Codex: default</option></select>
+        <select id="codexEffort" title="Codex reasoning effort — options match the selected Codex model">
+          <option value="">Codex eff: default</option>
+        </select>
+      </span>
+      <span class="provider-config" data-agent="grok">
+        <select id="grokModel" title="Grok model"><option value="">Grok: default</option></select>
+        <select id="grokEffort" title="Grok reasoning effort — options match the selected Grok model">
+          <option value="">Grok eff: default</option>
+        </select>
+      </span>
+    </span>
     <button class="btn-ghost" id="riff" title="Let the AIs reply without a new prompt from you">Riff ▸</button>
     <button class="btn-ghost" id="export" title="Download transcript">⭳</button>
     <button class="btn-ghost" id="reset" title="New conversation">New</button>
+    <button class="btn-ghost" id="remote" title="Allow access from another device on your local network">📱 LAN off</button>
     <button class="btn-ghost" id="restart" title="Restart the server (reloads code + provider model/effort catalogs)">⟳</button>
   </div>
 </header>
@@ -246,13 +335,58 @@
       <span id="nameStatus" aria-live="polite"></span>
     </span>
     <span class="ws" title="Folder the AIs read from — their working directory. Read-only enforcement varies by provider and OS.">📁
-      <input id="workspace" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="/path/to/project">
-      <span id="wsstatus"></span>
+      <input id="workspace" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="/path/to/project" aria-label="Workspace folder path">
+      <button class="btn-ghost" id="pickWorkspace" type="button" title="Choose a folder on this computer">Choose…</button>
+      <span id="wsstatus" aria-live="polite"></span>
     </span>
   </div>
 </footer>
 
 <script>
+const LAN_SESSION_STORE = 'ai-roundtable-lan-session';
+let lanSessionToken = '';
+function readSessionValue(key){
+  try{ return sessionStorage.getItem(key) || ''; }catch{ return ''; }
+}
+function writeSessionValue(key,value){
+  try{
+    if(value) sessionStorage.setItem(key,value);
+    else sessionStorage.removeItem(key);
+    return true;
+  }catch{ return false; }
+}
+lanSessionToken = readSessionValue(LAN_SESSION_STORE);
+writeSessionValue('ai-roundtable-remote-token',''); // remove the old URL-key credential
+try{
+  if(new URLSearchParams(location.hash.slice(1)).has('token')){
+    history.replaceState(null,'',location.pathname+location.search);
+  }
+}catch{}
+function rememberLanSession(value){
+  lanSessionToken=value||'';
+  return writeSessionValue(LAN_SESSION_STORE,lanSessionToken);
+}
+const nativeFetch = window.fetch.bind(window);
+window.fetch = (resource, options={})=>{
+  const configured={...options};
+  const headers=new Headers(options.headers || (resource instanceof Request ? resource.headers : undefined));
+  const requestUrl=new URL(resource instanceof Request ? resource.url : resource, location.href);
+  const requestSession=lanSessionToken;
+  if(requestUrl.origin===location.origin){
+    headers.set('X-AIConvo-Request','1');
+    if(requestSession) headers.set('X-AIConvo-Session',requestSession);
+  }
+  configured.headers=headers;
+  return nativeFetch(resource,configured).then(response=>{
+    if(response.status===401 && requestUrl.origin===location.origin &&
+        !requestUrl.pathname.startsWith('/api/auth/') && requestSession===lanSessionToken){
+      rememberLanSession('');
+      window.dispatchEvent(new Event('lan-auth-required'));
+    }
+    return response;
+  });
+};
+
 const $ = s => document.querySelector(s);
 const log = $('#log'), input = $('#input'), sendBtn = $('#send');
 let transcript = [];            // [{name, text, error?, interrupted?, model?}]
@@ -271,6 +405,15 @@ let codexDefaultSlug = '';
 let codexConfiguredEffort = '';
 let grokLevelsMap = {};         // slug -> supported effort levels
 let grokDefaultSlug = 'grok-4.5';
+let remoteReady = false;
+let remoteEnabled = false;
+let remoteControl = false;
+let remoteUrls = [];
+let remotePasswordConfigured = false;
+let remoteNeedsLogin = false;
+let lanLoginChecking = false;
+let lanLoginSubmitting = false;
+let serverInstance = '';
 
 const STORE = 'ai-roundtable-v2';   // local cache of the open transcript
 const CUR   = 'ai-roundtable-cur';  // id of the last-open conversation
@@ -427,7 +570,7 @@ function clearActivity(){
 }
 
 /* ---------- a single live, streaming reply ---------- */
-function streamAgent(agent){
+function streamAgent(agent, activeAgents){
   return new Promise(resolve=>{
     if(!transcript.length) log.querySelector('.empty')?.remove();
     const model = agent==='claude' ? $('#cmodel').value
@@ -478,7 +621,7 @@ function streamAgent(agent){
     fetch('/api/ask', {
       method:'POST', signal:currentAbort.signal,
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({agent, claudeModel:$('#cmodel').value, codexModel:$('#codexModel').value,
+      body: JSON.stringify({agent, activeAgents, claudeModel:$('#cmodel').value, codexModel:$('#codexModel').value,
         grokModel:$('#grokModel').value,
         effort: (agent==='claude' ? $('#claudeEffort').value
           : agent==='codex' ? $('#codexEffort').value : $('#grokEffort').value),
@@ -515,16 +658,44 @@ function streamAgent(agent){
 function enabledAgents(){
   return AGENTS.filter(a => $('#chip-'+a).querySelector('input').checked);
 }
-function orderFor(list){
-  if(list.length<2) return list.slice();
-  const f=$('#first').value;
+function fixedOrderFor(list){
   const base=AGENTS.filter(a=>list.includes(a));
+  const f=$('#first').value;
+  if(f==='alt' || !base.includes(f)) return base;
+  return [f, ...base.filter(a=>a!==f)];  // chosen first; remaining providers stay stable
+}
+function orderFor(list){
+  const base=AGENTS.filter(a=>list.includes(a));
+  if(base.length<2) return base;
+  const f=$('#first').value;
   if(f==='alt'){
+    const start=roundParity%base.length;
     roundParity=(roundParity+1)%base.length;
-    return base.slice(roundParity).concat(base.slice(0,roundParity));
+    return base.slice(start).concat(base.slice(0,start));
   }
-  const i=base.indexOf(f);
-  return i<0 ? base : base.slice(i).concat(base.slice(0,i));
+  return fixedOrderFor(base);
+}
+function syncProviderControls(){
+  const enabled=enabledAgents(), first=$('#first');
+  let normalized=first.value;
+  if(enabled.length && ((normalized==='alt' && enabled.length<2) ||
+      (normalized!=='alt' && !enabled.includes(normalized)))) normalized=enabled[0];
+  if(normalized!==first.value){
+    first.value=normalized;
+    localStorage.setItem('rt-first', normalized);
+  }
+  first.disabled=!enabled.length;
+  [...first.options].forEach(option=>{
+    option.disabled = option.value==='alt' ? enabled.length<2 : !enabled.includes(option.value);
+  });
+
+  const displayOrder=first.value==='alt' ? AGENTS.filter(a=>enabled.includes(a)) : fixedOrderFor(enabled);
+  const holder=$('#providerControls');
+  displayOrder.concat(AGENTS.filter(a=>!enabled.includes(a))).forEach(agent=>{
+    const group=holder.querySelector(`.provider-config[data-agent="${agent}"]`);
+    group.hidden=!enabled.includes(agent);
+    holder.appendChild(group);           // move the existing controls; keep their values/handlers
+  });
 }
 const autoOn = ()=> $('#chip-auto').querySelector('input').checked;
 const writeOn = ()=> $('#chip-write').querySelector('input').checked;
@@ -543,9 +714,10 @@ async function converse(){
         order=orderFor(en);
       }
       first=false;
+      const activeAgents=order.slice();   // one stable roster for every reply in this round
       for(const agent of order){
         if(stopRequested) throw 'stop';
-        await streamAgent(agent);
+        await streamAgent(agent, activeAgents);
         if(stopRequested) throw 'stop';
       }
       if(directed) break;   // direct-address: non-targeted AIs stay silent but see the replies
@@ -615,6 +787,14 @@ $('#codexModel').onchange = ()=>{ localStorage.setItem('rt-codexmodel', $('#code
 $('#codexEffort').onchange = ()=> localStorage.setItem('rt-codex-effort', $('#codexEffort').value);
 $('#grokModel').onchange = ()=>{ localStorage.setItem('rt-grokmodel', $('#grokModel').value); rebuildGrokEffort(); };
 $('#grokEffort').onchange = ()=> localStorage.setItem('rt-grok-effort', $('#grokEffort').value);
+const savedFirst=localStorage.getItem('rt-first');
+if(savedFirst && [...$('#first').options].some(option=>option.value===savedFirst)) $('#first').value=savedFirst;
+$('#first').onchange = ()=>{
+  localStorage.setItem('rt-first', $('#first').value);
+  roundParity=0;
+  syncProviderControls();
+};
+syncProviderControls();
 
 // Every effort selector tracks the selected model's advertised capabilities.
 function rebuildClaudeEffort(){
@@ -635,7 +815,10 @@ function rebuildCodexEffort(){
   const modelDefault = $('#codexModel').value
     ? (codexDefaultsMap[slug] || '') : codexConfiguredEffort;
   const prev = sel.value || localStorage.getItem('rt-codex-effort') || '';
-  sel.innerHTML = `<option value="">Codex eff: default${modelDefault?' ('+modelDefault+')':''}</option>`;
+  const defaultOption=document.createElement('option');
+  defaultOption.value='';
+  defaultOption.textContent=`Codex eff: default${modelDefault?' ('+modelDefault+')':''}`;
+  sel.replaceChildren(defaultOption);
   levels.forEach(l=>{ const o=document.createElement('option'); o.value=l; o.textContent='Codex eff: '+l; sel.appendChild(o); });
   sel.value = [...sel.options].some(o=>o.value===prev) ? prev : '';
 }
@@ -665,6 +848,10 @@ document.querySelectorAll('.chip').forEach(chip=>{
     chip.classList.toggle('on', chip.querySelector('input').checked);
     if(chip.id==='chip-auto') updateControls();
     if(chip.id==='chip-write') localStorage.setItem('rt-write', chip.querySelector('input').checked?'1':'');
+    if(AGENTS.some(agent=>chip.id==='chip-'+agent)){
+      roundParity=0;
+      syncProviderControls();
+    }
   };
 });
 if(localStorage.getItem('rt-write')==='1'){
@@ -672,19 +859,257 @@ if(localStorage.getItem('rt-write')==='1'){
   $('#chip-write').classList.add('on');
 }
 
+function renderRemoteAccess(){
+  const button=$('#remote'), toggle=$('#toggleRemote'), link=$('#remoteLink');
+  const setup=$('#lanPasswordSetup'), savePassword=$('#saveLanPassword');
+  link.replaceChildren();                 // remove stale addresses whenever state changes
+  button.textContent = remoteNeedsLogin ? '📱 LAN login' :
+    (remoteEnabled ? (remoteControl?'📱 LAN on':'📱 LAN connected') : '📱 LAN off');
+  button.style.borderColor = remoteEnabled ? 'var(--codex)' : '';
+  if(!remoteReady){
+    $('#remoteSummary').textContent='Loading LAN access status…';
+    link.hidden=true; setup.hidden=true; toggle.hidden=true; savePassword.hidden=true; return;
+  }
+  if(!remoteControl){
+    $('#remoteSummary').textContent = remoteNeedsLogin
+      ? 'Enter the LAN password to use AI Roundtable on this device.' : remoteEnabled
+      ? 'This device is connected through the LAN link. LAN access can be changed only from a browser on the computer running AI Roundtable.'
+      : 'Open this panel on the computer running AI Roundtable to enable LAN access.';
+    link.hidden=true; setup.hidden=true; toggle.hidden=true; savePassword.hidden=true; return;
+  }
+  setup.hidden=false;
+  $('#lanPasswordHint').textContent = remotePasswordConfigured
+    ? (remoteEnabled
+      ? 'A password is set. Enter a new one to change it; connected devices will have to sign in again.'
+      : 'A password is already set. Leave both fields blank to keep it when enabling LAN access.')
+    : 'Set a LAN password of at least 8 characters before enabling access.';
+  $('#lanPassword').placeholder=remotePasswordConfigured?'New LAN password (optional)':'LAN password';
+  $('#lanPasswordConfirm').placeholder=remotePasswordConfigured?'Confirm new password':'Confirm password';
+  // Keep password setup discoverable even while LAN access is off.
+  savePassword.hidden=false;
+  savePassword.textContent=remotePasswordConfigured?'Change password':'Set password';
+  toggle.hidden=false;
+  toggle.textContent=remoteEnabled?'Turn off LAN access':'Enable LAN access';
+  toggle.classList.toggle('on', remoteEnabled);
+  if(remoteEnabled && remoteUrls.length){
+    $('#remoteSummary').textContent='LAN access is on. Open this link on another device connected to the same network:';
+    remoteUrls.forEach((url,index)=>{
+      const row=document.createElement('div'); row.className='remote-link-row';
+      const address=document.createElement('a'); address.className='remote-address';
+      address.href=url; address.target='_blank'; address.rel='noopener noreferrer';
+      address.textContent=url; address.title='Open this LAN link';
+      address.setAttribute('aria-label',`LAN access link ${index+1}`);
+      const copy=document.createElement('button'); copy.className='btn-ghost'; copy.type='button';
+      copy.textContent='Copy'; copy.onclick=()=>copyRemoteUrl(url,copy);
+      row.append(address,copy); link.appendChild(row);
+    });
+    link.hidden=false;
+  } else if(remoteEnabled){
+    $('#remoteSummary').textContent='LAN access is on, but no LAN address was detected. Check the server terminal and your network settings.';
+    link.hidden=true;
+  } else {
+    $('#remoteSummary').textContent='Enable a password-protected link for other devices on this local network. It remains on through in-app restarts and turns off after a fresh launch.';
+    link.hidden=true;
+  }
+}
+function openRemoteDialog(){ renderRemoteAccess(); $('#remoteDialog').showModal(); }
+$('#remote').onclick=()=>remoteNeedsLogin?showLanLogin():openRemoteDialog();
+function clearLanPasswordFields(){
+  $('#lanPassword').value=''; $('#lanPasswordConfirm').value='';
+  $('#lanPasswordStatus').textContent='';
+}
+$('#closeRemote').onclick=$('#dismissRemote').onclick=()=>{
+  clearLanPasswordFields(); $('#remoteDialog').close();
+};
+$('#remoteDialog').addEventListener('click', event=>{
+  if(event.target===$('#remoteDialog')){ clearLanPasswordFields(); $('#remoteDialog').close(); }
+});
+$('#remoteDialog').addEventListener('cancel', clearLanPasswordFields);
+async function copyRemoteUrl(url,button){
+  let copied=false;
+  try{
+    if(navigator.clipboard?.writeText){ await navigator.clipboard.writeText(url); copied=true; }
+  }catch{}
+  if(!copied){
+    const fallback=document.createElement('textarea'); fallback.value=url;
+    fallback.style.position='fixed'; fallback.style.opacity='0'; document.body.appendChild(fallback);
+    try{ fallback.select(); copied=document.execCommand('copy'); }catch{}
+    finally{ fallback.remove(); }
+  }
+  button.textContent=copied?'Copied ✓':'Copy failed';
+  setTimeout(()=>button.textContent='Copy',1800);
+}
+function pendingLanPassword(required){
+  const password=$('#lanPassword').value, confirmation=$('#lanPasswordConfirm').value;
+  if(!password && !confirmation && !required) return '';
+  const characters=Array.from(password).length;
+  if(characters<8) throw new Error('LAN password must be at least 8 characters.');
+  if(characters>128 || new TextEncoder().encode(password).length>512){
+    throw new Error('LAN password must be 128 characters or fewer.');
+  }
+  if(password!==confirmation) throw new Error('The two LAN passwords do not match.');
+  return password;
+}
+async function saveLanPassword(){
+  const button=$('#saveLanPassword'), status=$('#lanPasswordStatus');
+  const fields=[$('#lanPassword'),$('#lanPasswordConfirm')];
+  const wasConfigured=remotePasswordConfigured;
+  if(button.disabled) return;
+  try{
+    const password=pendingLanPassword(true);
+    button.disabled=true; fields.forEach(field=>field.disabled=true);
+    status.textContent='Saving…'; status.style.color='var(--muted)';
+    const response=await fetch('/api/remote',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({password})});
+    const result=await response.json();
+    if(!response.ok) throw new Error(result.error||'could not change LAN password');
+    remoteEnabled=!!result.enabled;
+    remoteUrls=Array.isArray(result.urls)?result.urls:[];
+    remotePasswordConfigured=!!result.passwordConfigured;
+    clearLanPasswordFields();
+    status.textContent=wasConfigured
+      ? (remoteEnabled?'Password changed. Connected devices must sign in again.':'Password changed.')
+      : 'Password set.';
+    status.style.color='var(--codex)'; renderRemoteAccess();
+  }catch(error){ status.textContent=error.message||'Could not change LAN password.'; status.style.color='var(--err)'; }
+  finally{ button.disabled=false; fields.forEach(field=>field.disabled=false); }
+}
+$('#saveLanPassword').onclick=saveLanPassword;
+$('#lanPassword').addEventListener('keydown',event=>{
+  if(event.key==='Enter'){ event.preventDefault(); $('#lanPasswordConfirm').focus(); }
+});
+$('#lanPasswordConfirm').addEventListener('keydown',event=>{
+  if(event.key==='Enter'){ event.preventDefault(); saveLanPassword(); }
+});
+
+async function showLanLogin(){
+  remoteNeedsLogin=true; remoteReady=true; remoteEnabled=true; remoteControl=false; renderRemoteAccess();
+  const dialog=$('#lanLoginDialog'), input=$('#lanLoginPassword');
+  const button=$('#lanLoginButton'), refresh=$('#lanLoginRefresh');
+  if(!dialog.open) dialog.showModal();
+  if(lanLoginChecking || lanLoginSubmitting) return;
+  lanLoginChecking=true; input.disabled=true; button.disabled=true; refresh.disabled=true;
+  $('#lanLoginStatus').textContent='';
+  try{
+    const response=await fetch('/api/auth/status',{cache:'no-store'});
+    const status=await response.json();
+    remotePasswordConfigured=!!status.passwordConfigured;
+    input.hidden=!remotePasswordConfigured; button.hidden=!remotePasswordConfigured;
+    refresh.hidden=remotePasswordConfigured;
+    input.disabled=!remotePasswordConfigured; button.disabled=!remotePasswordConfigured;
+    $('#lanLoginSummary').textContent=remotePasswordConfigured
+      ? 'Enter the LAN password set on the computer running AI Roundtable.'
+      : 'A LAN password has not been set. Set one from the server computer, then choose Check again.';
+  }catch{
+    input.hidden=false; button.hidden=false; refresh.hidden=true;
+    input.disabled=false; button.disabled=false;
+    $('#lanLoginSummary').textContent='Enter the LAN password set on the computer running AI Roundtable.';
+  }finally{
+    lanLoginChecking=false; refresh.disabled=false;
+  }
+  setTimeout(()=>remotePasswordConfigured?input.focus():refresh.focus(),50);
+}
+async function submitLanLogin(){
+  const input=$('#lanLoginPassword'), button=$('#lanLoginButton'), status=$('#lanLoginStatus');
+  if(button.disabled || lanLoginChecking || lanLoginSubmitting) return;
+  if(!input.value){ status.textContent='Enter the LAN password.'; return; }
+  lanLoginSubmitting=true; button.disabled=true; input.disabled=true;
+  status.textContent='Signing in…'; status.style.color='var(--muted)';
+  try{
+    const response=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({password:input.value})});
+    const result=await response.json();
+    if(!response.ok) throw new Error(result.error||'Could not sign in.');
+    input.value='';
+    const sessionStored=rememberLanSession(result.sessionToken||'');
+    if(!lanSessionToken) throw new Error('The server did not create a LAN session.');
+    if(!sessionStored){ lanSessionToken=''; throw new Error('This browser must allow session storage for LAN login.'); }
+    location.reload();
+  }catch(error){
+    input.value=''; status.textContent=error.message||'Could not sign in.'; status.style.color='var(--err)';
+    lanLoginSubmitting=false; button.disabled=false; input.disabled=false; input.focus();
+  }
+}
+$('#lanLoginButton').onclick=submitLanLogin;
+$('#lanLoginRefresh').onclick=showLanLogin;
+$('#lanLoginPassword').addEventListener('keydown',event=>{
+  if(event.key==='Enter'){ event.preventDefault(); submitLanLogin(); }
+});
+$('#lanLoginDialog').addEventListener('cancel',event=>event.preventDefault());
+window.addEventListener('lan-auth-required',()=>showLanLogin());
+
+function waitForServerRestart(message, expectedRemoteEnabled=null, previousInstance=serverInstance){
+  $('#status').textContent=message;
+  const started=Date.now();
+  const poll=async ()=>{
+    try{
+      const response=await fetch('/api/config',{cache:'no-store'});
+      if(response.ok){
+        const config=await response.json();
+        const replaced=!previousInstance || config.serverInstance!==previousInstance;
+        const stateMatches=expectedRemoteEnabled===null ||
+          !!config.remoteEnabled===expectedRemoteEnabled;
+        if(replaced && stateMatches){ location.reload(); return; }
+      }
+    }catch{}
+    if(Date.now()-started<25000) setTimeout(poll,500);
+    else $('#status').textContent='⚠ server didn’t come back — check the terminal';
+  };
+  setTimeout(poll,900);
+}
+$('#toggleRemote').onclick=async ()=>{
+  if(!remoteControl) return;
+  const desired=!remoteEnabled, button=$('#toggleRemote');
+  let password='';
+  try{ if(desired) password=pendingLanPassword(!remotePasswordConfigured); }
+  catch(error){ $('#lanPasswordStatus').textContent=error.message; $('#lanPasswordStatus').style.color='var(--err)'; return; }
+  if(desired && !confirm('Enable LAN access?\n\nAnyone with the LAN address and password can use the assistants. Do not use it on public Wi-Fi or expose the port to the internet.')) return;
+  if(running) bargeIn();
+  button.disabled=true;
+  try{
+    const response=await fetch('/api/remote',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({enabled:desired,...(password?{password}:{})})});
+    const result=await response.json();
+    if(!response.ok) throw new Error(result.error||'could not change LAN access');
+    remoteEnabled=!!result.enabled; remoteUrls=result.urls||[];
+    remotePasswordConfigured=!!result.passwordConfigured;
+    clearLanPasswordFields();
+    if(!desired) rememberLanSession('');
+    if(result.restarting){
+      if(desired) writeSessionValue('rt-open-remote','1');
+      $('#remoteDialog').close();
+      if(!desired && !['localhost','127.0.0.1','::1'].includes(location.hostname)){
+        const stateSaved=writeSessionValue('rt-await-remote-state','off');
+        const instanceSaved=writeSessionValue('rt-await-server-instance',serverInstance);
+        $('#status').textContent='● disabling LAN access… returning to this computer';
+        if(result.localUrl){
+          if(stateSaved && instanceSaved) location.replace(result.localUrl);
+          else setTimeout(()=>location.replace(result.localUrl),1200);
+          return;
+        }
+      }
+      waitForServerRestart(
+        desired?'● enabling LAN access…':'● disabling LAN access…', desired,
+      );
+    } else {
+      renderRemoteAccess(); button.disabled=false;
+    }
+  }catch(error){
+    button.disabled=false;
+    alert(error.message||'Could not change LAN access.');
+  }
+};
+
 $('#reset').onclick = newConversation;
 $('#restart').onclick = async ()=>{
   if(!confirm('Restart the AI Roundtable server?\n(reloads code + provider model/effort catalogs; your saved conversations are safe)')) return;
   if(running) bargeIn();
-  try{ await fetch('/api/restart',{method:'POST'}); }catch{}
-  $('#status').textContent = '● restarting server…';
-  const t0 = Date.now();
-  const poll = async ()=>{
-    try{ const r = await fetch('/api/config',{cache:'no-store'}); if(r.ok){ location.reload(); return; } }catch{}
-    if(Date.now()-t0 < 25000) setTimeout(poll, 500);
-    else $('#status').textContent = '⚠ server didn’t come back — check the terminal';
-  };
-  setTimeout(poll, 900);
+  try{
+    const response=await fetch('/api/restart',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    let result={}; try{ result=await response.json(); }catch{}
+    if(!response.ok) throw new Error(result.error||'Could not restart the server.');
+    waitForServerRestart('● restarting server…');
+  }catch(error){ alert(error.message||'Could not restart the server.'); }
 };
 $('#export').onclick = ()=>{
   const md = transcript.map(m=>`## ${DISPLAY[m.name]||DISPLAY.user}${m.model?` (${modelTag(m.model)})`:''}\n\n${m.text}`).join('\n\n---\n\n');
@@ -786,6 +1211,26 @@ $('#workspace').addEventListener('input', ()=>{
   clearTimeout(wsTimer);
   wsTimer = setTimeout(()=>{ localStorage.setItem('rt-workspace', $('#workspace').value.trim()); checkWorkspace(); }, 400);
 });
+$('#pickWorkspace').onclick = async ()=>{
+  const button=$('#pickWorkspace'), field=$('#workspace'), st=$('#wsstatus');
+  button.disabled=true; st.textContent='…'; st.style.color='var(--muted)';
+  try{
+    const response=await fetch('/api/pickdir',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({initial:field.value.trim()})});
+    const result=await response.json();
+    if(!response.ok) throw new Error(result.error||'could not open folder picker');
+    if(result.ok && result.path){
+      field.value=result.path;
+      localStorage.setItem('rt-workspace', result.path);
+    }
+    await checkWorkspace();              // cancel preserves and revalidates the current path
+  }catch(error){
+    st.textContent='✗'; st.style.color='var(--err)';
+    st.title=error.message||'Could not open folder picker; type the path manually.';
+  }finally{
+    button.disabled=false;
+  }
+};
 
 let nameStatusTimer;
 async function saveUserName(){
@@ -814,10 +1259,51 @@ $('#userName').addEventListener('keydown', event=>{
   if(event.key==='Enter'){ event.preventDefault(); saveUserName(); }
 });
 
-fetch('/api/config',{cache:'no-store'}).then(r=>r.json()).then(c=>{
+const configReady=fetch('/api/config',{cache:'no-store'}).then(async response=>{
+  let result={}; try{ result=await response.json(); }catch{}
+  if(!response.ok){
+    const error=new Error(result.error||'could not load server configuration');
+    error.status=response.status; error.code=result.code||''; throw error;
+  }
+  return result;
+}).then(c=>{
   applyUserName(c.userName);
+  serverInstance=typeof c.serverInstance==='string'?c.serverInstance:'';
+  remoteReady=true;
+  remoteEnabled=!!c.remoteEnabled;
+  remoteControl=!!c.remoteControl;
+  remoteUrls=Array.isArray(c.remoteUrls)?c.remoteUrls:[];
+  remotePasswordConfigured=!!c.passwordConfigured;
+  remoteNeedsLogin=false;
+  if(!remoteControl){
+    $('#restart').disabled=true;
+    $('#restart').title='Restart the server from the computer running AI Roundtable';
+  }
+  renderRemoteAccess();
+  const awaitedState=readSessionValue('rt-await-remote-state');
+  if(awaitedState){
+    const expected=awaitedState==='on';
+    const previous=readSessionValue('rt-await-server-instance');
+    if(serverInstance && serverInstance!==previous && remoteEnabled===expected){
+      writeSessionValue('rt-await-remote-state','');
+      writeSessionValue('rt-await-server-instance','');
+    }else{
+      setTimeout(()=>waitForServerRestart(
+        expected?'● enabling LAN access…':'● disabling LAN access…', expected, previous,
+      ),100);
+      return false;
+    }
+  }
+  if(remoteEnabled && remoteControl && readSessionValue('rt-open-remote')==='1'){
+    writeSessionValue('rt-open-remote','');
+    setTimeout(openRemoteDialog,150);
+  }
   // Warn if any agent's CLI is missing from PATH.
   const nativeWindows = c.platform==='windows';
+  if(c.folderPicker===false){
+    $('#pickWorkspace').disabled=true;
+    $('#pickWorkspace').title='Available only in a browser on the server computer; type the server path manually';
+  }
   $('#workspace').placeholder = nativeWindows ? 'C:\\path\\to\\project' : '/path/to/project';
   const INSTALL = nativeWindows ? {
     claude: {name:'Claude Code', cmd:'irm https://claude.ai/install.ps1 | iex', url:'https://code.claude.com/docs/en/getting-started'},
@@ -842,6 +1328,7 @@ fetch('/api/config',{cache:'no-store'}).then(r=>r.json()).then(c=>{
     `<a href="${INSTALL[k].url}" target="_blank" rel="noopener" style="color:var(--muted)">docs</a>`
   )).join('<br>');
   missing.forEach(k => { const chip=$('#chip-'+k); if(chip){ chip.classList.remove('on'); chip.querySelector('input').checked=false; } });
+  if(missing.length){ roundParity=0; syncProviderControls(); }
   $('#workspace').value = localStorage.getItem('rt-workspace') || c.cwd || '';
   checkWorkspace();
   // Claude model: saved choice, else server default
@@ -874,7 +1361,23 @@ fetch('/api/config',{cache:'no-store'}).then(r=>r.json()).then(c=>{
   const savedG = localStorage.getItem('rt-grokmodel');
   if(savedG!==null && [...gsel.options].some(o=>o.value===savedG)) gsel.value = savedG;
   rebuildGrokEffort();
-}).catch(()=>{});
+  return true;
+}).catch(error=>{
+  const needsLogin=error.status===401 || error.code==='lan_login_required';
+  remoteReady=true; remoteEnabled=needsLogin; remoteControl=false; remoteNeedsLogin=needsLogin;
+  renderRemoteAccess();
+  const banner=$('#clibanner');
+  if(needsLogin){
+    banner.hidden=true;
+    $('#remote').textContent='📱 LAN login';
+    $('#remote').title='Enter the LAN password';
+    showLanLogin();
+  }else{
+    banner.hidden=false; banner.classList.remove('platform-only');
+    banner.textContent='⚠️ Could not load the AI Roundtable server configuration.';
+  }
+  return false;
+});
 
 async function boot(){
   loadStore(); render(); updateControls(); input.focus();   // instant from local cache
@@ -894,7 +1397,7 @@ async function boot(){
     }
   }catch{ /* offline — keep local cache */ }
 }
-boot();
+configReady.then(authorized=>{ if(authorized) boot(); });
 </script>
 </body>
 </html>

@@ -167,13 +167,16 @@ already maintain.
 
 1. Start `server.py`.
 2. Select Claude, Codex, Grok, or any combination using the participant chips.
-3. Choose the folder the assistants should inspect in the **📁 workspace** field.
+3. Use **Choose…** beside the **📁 workspace** field to pick the folder the assistants
+   should inspect, or enter its path manually.
 4. Leave **✎ Edit** off for discussion and inspection, or enable it when you intentionally
    want the assistants to edit files and run commands.
 5. Type a message and press **Enter**.
 
 By default, every enabled assistant replies in sequence. The **first** menu chooses who
-starts; `alternate` rotates the starting participant each round.
+starts; that provider's model and effort controls move into the first position while the
+other enabled providers retain their order. `alternate` rotates the starting participant
+each round. Each provider keeps its own saved model and effort when the order changes.
 
 ### Address particular assistants
 
@@ -208,10 +211,42 @@ The left side shows provider activity while a turn runs:
 Grok Build's current streaming format exposes thinking and reply fragments but not every
 tool event, so its activity pane may contain less detail than Claude's or Codex's.
 
+## LAN access
+
+Open AI Roundtable on the server computer and click **📱 LAN off**. Enter and confirm a
+password, then either choose **Set password** first or choose **Enable LAN access** to save it
+and enable access in one step. The server restarts on the local network and shows a normal,
+copyable LAN address with no password or token embedded in it.
+Open that address on another device connected to the same network and enter the password.
+Only a salted, slow password verifier is saved in `config.json`; the password itself is not.
+After login, the browser keeps an expiring internal session credential in that tab's
+`sessionStorage` and sends it with protected API requests.
+
+Browsers opened directly on the computer running AI Roundtable never need the LAN password,
+even while LAN access is enabled. Password login applies only to other devices on the network.
+
+LAN mode is authenticated but ordinary HTTP traffic is not encrypted. Use it only on a
+trusted private network: someone monitoring the network could observe the password or session.
+Never port-forward the server to the internet. The in-app toggle listens on all IPv4
+interfaces (`0.0.0.0`), including active VPN
+interfaces, while offering detected private-network addresses as LAN links. Your firewall
+may ask whether Python can accept private-network connections. WSL 2
+users should use mirrored networking when available; reverse proxies and port-proxy forwarding
+are not supported because local-only controls rely on a direct client connection.
+
+The native folder picker, LAN toggle, and server restart remain restricted to a browser on
+the computer running AI Roundtable. Chatting, conversation history, model controls, and agent
+turns work from an authenticated LAN device. The server computer can replace a forgotten
+password; changing it signs out connected devices. LAN mode survives in-app restarts and
+resets to off after a fresh launch unless `ROUNDTABLE_HOST` explicitly requests a network bind.
+
 ## Workspace access and safety
 
-The **📁 workspace** field sets the working directory for every assistant. `~` is expanded,
-and the app checks that the folder exists before starting a provider.
+The **📁 workspace** field sets the working directory for every assistant. **Choose…** opens
+the host operating system's folder dialog; manual entry remains available for headless or
+remote sessions. `~` is expanded, and the app checks that the folder exists before starting
+a provider. The dialog always selects a folder on the computer running `server.py` and is
+enabled only when the browser is connecting from that same computer.
 
 ### Read-only mode
 
@@ -299,7 +334,7 @@ Then open the matching address, such as <http://127.0.0.1:9000/>.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `ROUNDTABLE_HOST` | `127.0.0.1` | HTTP bind address |
+| `ROUNDTABLE_HOST` | `127.0.0.1` | HTTP bind address; a non-loopback bind starts LAN mode, but remote APIs remain locked until a password is set locally |
 | `ROUNDTABLE_PORT` | `8765` | HTTP port |
 | `ROUNDTABLE_CWD` | repository folder | Initial assistant workspace |
 | `ROUNDTABLE_DATA` | `conversations/` | Saved-conversation directory |
@@ -341,8 +376,9 @@ python3 server.py 9000
 
 ### A workspace is rejected
 
-Enter an existing absolute folder path. The green check beside the workspace field shows the
-resolved folder that will be given to the assistants.
+Use **Choose…** or enter an existing absolute folder path. The green check beside the workspace
+field shows the resolved folder that will be given to the assistants. If no graphical desktop
+or native dialog is available, the picker reports an error and manual entry continues to work.
 
 ## Development and tests
 

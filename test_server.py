@@ -1,3 +1,4 @@
+import http.client
 import io
 import json
 import os
@@ -19,7 +20,7 @@ def event_state():
 
 
 class PromptTests(unittest.TestCase):
-    def test_every_agent_gets_the_four_participant_transcript(self):
+    def test_omitted_roster_keeps_all_agents_active_for_compatibility(self):
         transcript = [
             {"name": "user", "text": "Compare the options."},
             {"name": "grok", "text": "I prefer option B."},
@@ -28,12 +29,43 @@ class PromptTests(unittest.TestCase):
             with self.subTest(agent=agent):
                 prompt = server.build_prompt(agent, transcript)
                 self.assertIn(f"You are {server.DISPLAY[agent]}", prompt)
-                self.assertIn("one of four participants", prompt)
-                self.assertIn("- Claude", prompt)
-                self.assertIn("- Codex", prompt)
-                self.assertIn("- Grok", prompt)
+                self.assertIn("- Claude — an AI assistant; participating in this round", prompt)
+                self.assertIn("- Codex — an AI assistant; participating in this round", prompt)
+                self.assertIn("- Grok — an AI assistant; participating in this round", prompt)
                 self.assertIn("You: Compare the options.", prompt)
                 self.assertIn("Grok: I prefer option B.", prompt)
+
+    def test_prompt_marks_unselected_agent_inactive(self):
+        prompt = server.build_prompt(
+            "claude",
+            [{"name": "grok", "text": "An earlier message."}],
+            active_agents=["claude", "codex"],
+        )
+        self.assertIn("Claude — an AI assistant; participating in this round", prompt)
+        self.assertIn("Codex — an AI assistant; participating in this round", prompt)
+        self.assertIn("Grok — an AI assistant; not participating in this round; will not reply", prompt)
+        self.assertIn("Do not address Grok, ask them questions, wait for them", prompt)
+        self.assertIn("treat those earlier messages as context only", prompt)
+        self.assertIn("Collaborate with You and Codex", prompt)
+        self.assertNotIn("one of four participants", prompt)
+        self.assertNotIn("four-way collaboration", prompt)
+
+    def test_solo_agent_prompt_has_no_phantom_peers(self):
+        prompt = server.build_prompt("codex", [], active_agents=["codex"])
+        self.assertIn("Collaborate with You:", prompt)
+        self.assertIn("Do not address Claude and Grok", prompt)
+        self.assertNotIn("Collaborate with You and", prompt)
+
+    def test_agent_roster_is_validated_and_deduplicated(self):
+        self.assertEqual(
+            ["codex", "claude"],
+            server._normalize_agent_keys(["CODEX", "claude", "codex"]),
+        )
+        for invalid in ("claude", ["claude", "unknown"], [None]):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                server._normalize_agent_keys(invalid)
+        with self.assertRaises(ValueError):
+            server.build_prompt("claude", [], active_agents=["codex"])
 
     def test_write_permission_text_tracks_edit_mode(self):
         self.assertIn("read-only", server.build_prompt("grok", [], write=False))
@@ -50,7 +82,7 @@ class PromptTests(unittest.TestCase):
         self.assertIn("- Ada Lovelace — the human participant", prompt)
         self.assertIn("Ada Lovelace: New role key.", prompt)
         self.assertIn("Ada Lovelace: Old role key.", prompt)
-        self.assertIn("ask Ada Lovelace", prompt)
+        self.assertIn("Collaborate with Ada Lovelace", prompt)
         self.assertNotIn("old-local-label", prompt)
 
 
@@ -102,11 +134,12 @@ class UserConfigTests(unittest.TestCase):
                     with urllib.request.urlopen(base + "/api/config") as response:
                         initial = json.load(response)
                     self.assertEqual("You", initial["userName"])
+                    self.assertTrue(initial["folderPicker"])
                     self.assertEqual({"claude", "codex", "grok"}, set(initial["clis"]))
 
                     request = urllib.request.Request(
                         base + "/api/config", method="PUT",
-                        headers={"Content-Type": "application/json"},
+                        headers={"Content-Type": "application/json", "X-AIConvo-Request": "1"},
                         data=json.dumps({"userName": "  Grace Hopper  "}).encode(),
                     )
                     with urllib.request.urlopen(request) as response:
@@ -116,7 +149,7 @@ class UserConfigTests(unittest.TestCase):
 
                     bad_request = urllib.request.Request(
                         base + "/api/config", method="PUT",
-                        headers={"Content-Type": "application/json"},
+                        headers={"Content-Type": "application/json", "X-AIConvo-Request": "1"},
                         data=json.dumps({"userName": "Grok"}).encode(),
                     )
                     with self.assertRaises(urllib.error.HTTPError) as caught:
@@ -127,6 +160,683 @@ class UserConfigTests(unittest.TestCase):
                     httpd.shutdown()
                     httpd.server_close()
                     thread.join(timeout=2)
+
+
+class AskRosterTests(unittest.TestCase):
+    def test_ask_passes_the_request_roster_into_the_prompt(self):
+        captured = {}
+
+        def fake_stream(handler, agent, prompt, model, effort, workdir, write):
+            captured.update(agent=agent, prompt=prompt)
+            handler._send(200, json.dumps({"ok": True}))
+
+        with mock.patch.object(server.Handler, "stream_agent", new=fake_stream):
+            httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+            thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://127.0.0.1:{httpd.server_port}"
+            try:
+                request = urllib.request.Request(
+                    base + "/api/ask", method="POST",
+                    headers={"Content-Type": "application/json", "X-AIConvo-Request": "1"},
+                    data=json.dumps({
+                        "agent": "claude",
+                        "activeAgents": ["claude", "codex"],
+                        "transcript": [{"name": "user", "text": "Discuss this."}],
+                    }).encode(),
+                )
+                with urllib.request.urlopen(request) as response:
+                    self.assertEqual(200, response.status)
+                self.assertEqual("claude", captured["agent"])
+                self.assertIn("Codex — an AI assistant; participating in this round", captured["prompt"])
+                self.assertIn("Grok — an AI assistant; not participating in this round", captured["prompt"])
+
+                bad_request = urllib.request.Request(
+                    base + "/api/ask", method="POST",
+                    headers={"Content-Type": "application/json", "X-AIConvo-Request": "1"},
+                    data=json.dumps({
+                        "agent": "claude", "activeAgents": ["claude", "grok-impostor"]
+                    }).encode(),
+                )
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    urllib.request.urlopen(bad_request)
+                self.assertEqual(400, caught.exception.code)
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
+                thread.join(timeout=2)
+
+
+class DirectoryPickerTests(unittest.TestCase):
+    def test_picker_initial_uses_nearest_existing_parent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            nested = os.path.join(directory, "missing", "deeper")
+            self.assertEqual(directory, server._picker_initial_directory(nested))
+
+    def test_windows_picker_passes_initial_path_through_the_environment(self):
+        with tempfile.TemporaryDirectory(prefix="workspace 'quoted' ") as directory:
+            powershell = os.path.abspath(os.path.join(tempfile.gettempdir(), "powershell.exe"))
+            with (mock.patch.object(server, "_platform_key", return_value="windows"),
+                  mock.patch.object(server, "_windows_powershell_path", return_value=powershell)):
+                label, command, updates = next(server._directory_picker_candidates(directory))
+            self.assertEqual("Windows folder dialog", label)
+            self.assertEqual(powershell, command[0])
+            self.assertIn("-STA", command)
+            self.assertNotIn(directory, command)
+            self.assertEqual(directory, updates[server._PICKER_INITIAL_ENV])
+
+    def test_picker_success_cancel_and_backend_fallback(self):
+        with tempfile.TemporaryDirectory(prefix="picked workspace ") as directory:
+            candidates = [
+                ("Broken dialog", ["broken-picker"], {}),
+                ("Working dialog", ["working-picker"], {}),
+            ]
+            results = [
+                subprocess.CompletedProcess(["broken-picker"], 2, b"", b""),
+                subprocess.CompletedProcess(
+                    ["working-picker"], 0, os.fsencode(directory) + b"\n", b""
+                ),
+            ]
+            with (mock.patch.object(server, "_directory_picker_candidates", return_value=candidates),
+                  mock.patch.object(server.subprocess, "run", side_effect=results)):
+                self.assertEqual(directory, server.pick_directory(directory))
+
+            cancel = subprocess.CompletedProcess(["picker"], 1, b"", b"")
+            with (mock.patch.object(
+                      server, "_directory_picker_candidates",
+                      return_value=[("Zenity folder dialog", ["picker"], {})]),
+                  mock.patch.object(server.subprocess, "run", return_value=cancel)):
+                self.assertIsNone(server.pick_directory(directory))
+
+    def test_picker_reports_unavailable_backends(self):
+        failed = subprocess.CompletedProcess(["picker"], 2, b"", b"headless session")
+        with (mock.patch.object(
+                  server, "_directory_picker_candidates",
+                  return_value=[("Test dialog", ["picker"], {})]),
+              mock.patch.object(server.subprocess, "run", return_value=failed)):
+            with self.assertRaises(server.DirectoryPickerUnavailable) as caught:
+                server.pick_directory("")
+        self.assertIn("headless session", str(caught.exception))
+
+    def test_picker_http_api_handles_success_cancel_errors_and_bad_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            outcomes = [
+                directory,
+                None,
+                server.DirectoryPickerUnavailable("headless session"),
+            ]
+            with mock.patch.object(server, "pick_directory", side_effect=outcomes) as picker:
+                httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+                thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+                thread.start()
+                base = f"http://127.0.0.1:{httpd.server_port}"
+
+                def post(body, content_type="application/json"):
+                    request = urllib.request.Request(
+                        base + "/api/pickdir", method="POST",
+                        headers={"Content-Type": content_type, "X-AIConvo-Request": "1"},
+                        data=json.dumps(body).encode(),
+                    )
+                    with urllib.request.urlopen(request) as response:
+                        return response.status, json.load(response)
+
+                try:
+                    status, result = post({"initial": directory})
+                    self.assertEqual((200, True, directory),
+                                     (status, result["ok"], result["path"]))
+                    status, result = post({"initial": directory})
+                    self.assertEqual((200, True), (status, result["cancelled"]))
+
+                    with self.assertRaises(urllib.error.HTTPError) as unavailable:
+                        post({"initial": directory})
+                    self.assertEqual(501, unavailable.exception.code)
+
+                    with self.assertRaises(urllib.error.HTTPError) as invalid:
+                        post({"initial": 123})
+                    self.assertEqual(400, invalid.exception.code)
+                    with self.assertRaises(urllib.error.HTTPError) as wrong_type:
+                        post({"initial": directory}, "text/plain")
+                    self.assertEqual(415, wrong_type.exception.code)
+                    with mock.patch.object(server.Handler, "_loopback_client", return_value=False):
+                        with self.assertRaises(urllib.error.HTTPError) as remote:
+                            post({"initial": directory})
+                    self.assertEqual(403, remote.exception.code)
+                    self.assertEqual(3, picker.call_count)
+                finally:
+                    httpd.shutdown()
+                    httpd.server_close()
+                    thread.join(timeout=2)
+
+
+class RemoteAccessTests(unittest.TestCase):
+    def test_loopback_detection_and_lan_urls_contain_no_credentials(self):
+        self.assertTrue(server._host_is_loopback("127.0.0.1"))
+        self.assertTrue(server._host_is_loopback("::1"))
+        self.assertTrue(server._host_is_loopback("localhost"))
+        self.assertFalse(server._host_is_loopback("0.0.0.0"))
+        self.assertFalse(server._host_is_loopback("192.168.1.20"))
+        with mock.patch.object(server, "_lan_ipv4_addresses",
+                               return_value=["10.0.0.8", "192.168.1.20"]):
+            urls = server._remote_urls(9001, "0.0.0.0")
+            self.assertEqual([
+                "http://10.0.0.8:9001/",
+                "http://192.168.1.20:9001/",
+            ], urls)
+            for url in urls:
+                self.assertNotIn("?", url)
+                self.assertNotIn("#", url)
+                self.assertNotIn("token", url.casefold())
+        with mock.patch.object(server, "HOST", "192.168.1.77"):
+            self.assertEqual(
+                ["http://192.168.1.77:9001/"],
+                server._remote_urls(9001),
+            )
+
+    def test_bind_hostnames_resolve_once_and_ipv6_fails_clearly(self):
+        resolved = [(server.socket.AF_INET, server.socket.SOCK_STREAM, 6, "",
+                     ("192.168.1.77", 0))]
+        with mock.patch.object(server.socket, "getaddrinfo", return_value=resolved):
+            self.assertEqual("192.168.1.77", server._canonical_bind_host("my-pc.local"))
+        self.assertEqual("127.0.0.1", server._canonical_bind_host("localhost"))
+        with self.assertRaisesRegex(ValueError, "IPv6"):
+            server._canonical_bind_host("::1")
+
+    def test_lan_host_must_match_socket_destination_and_peer_scope(self):
+        handler = object.__new__(server.Handler)
+        handler.client_address = ("192.0.2.50", 4242)
+        with (mock.patch.object(handler, "_request_host", return_value="192.0.2.81"),
+              mock.patch.object(handler, "_socket_destination", return_value="192.0.2.81")):
+            self.assertTrue(handler._valid_lan_host())
+        with (mock.patch.object(handler, "_request_host", return_value="192.0.2.81"),
+              mock.patch.object(handler, "_socket_destination", return_value="198.51.100.8")):
+            self.assertFalse(handler._valid_lan_host())
+        handler.client_address = ("8.8.8.8", 4242)
+        with (mock.patch.object(handler, "_request_host", return_value="192.0.2.81"),
+              mock.patch.object(handler, "_socket_destination", return_value="192.0.2.81")):
+            self.assertFalse(handler._valid_lan_host())
+
+    def test_password_verifier_is_salted_persisted_without_plaintext_and_exact(self):
+        password = "correct horse battery staple"
+        salt = b"s" * server.LAN_PASSWORD_SALT_BYTES
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "config.json")
+            config = {}
+            with (mock.patch.object(server, "APP_CONFIG", config),
+                  mock.patch.object(server.secrets, "token_bytes", return_value=salt)):
+                self.assertTrue(server.configure_lan_password(password, path))
+                with open(path, encoding="utf-8") as handle:
+                    persisted_text = handle.read()
+                persisted = json.loads(persisted_text)
+
+                self.assertNotIn(password, persisted_text)
+                self.assertEqual({"salt", "verifier"},
+                                 set(persisted[server.LAN_PASSWORD_CONFIG_KEY]))
+                self.assertTrue(server._password_configured(config))
+                self.assertTrue(server._verify_lan_password(password))
+                self.assertFalse(server._verify_lan_password(password + "!"))
+
+                stored_salt, verifier = server._password_record(config)
+                self.assertEqual(salt, stored_salt)
+                self.assertNotEqual(
+                    verifier,
+                    server._derive_password_verifier(
+                        password, b"t" * server.LAN_PASSWORD_SALT_BYTES,
+                    ),
+                )
+
+        malformed = {server.LAN_PASSWORD_CONFIG_KEY: {
+            "salt": "not-valid-base64!", "verifier": "also-invalid!",
+        }}
+        self.assertIsNone(server._password_record(malformed))
+        self.assertFalse(server._password_configured(malformed))
+
+    def test_password_validation_rejects_unsafe_or_unbounded_values(self):
+        invalid = [
+            None,
+            "",
+            " " * server.LAN_PASSWORD_MIN_CHARS,
+            "short",
+            "password\n",
+            "x" * (server.LAN_PASSWORD_MAX_CHARS + 1),
+        ]
+        for value in invalid:
+            with self.subTest(value=repr(value)):
+                with self.assertRaises(ValueError):
+                    server._clean_lan_password(value)
+        self.assertEqual(" eight chars ", server._clean_lan_password(" eight chars "))
+
+    def test_signed_sessions_are_distinct_expire_and_rotate(self):
+        issued = 10_000
+        with (mock.patch.object(server, "REMOTE_SESSION_SECRET", "old-signing-secret"),
+              mock.patch.object(server.secrets, "token_urlsafe",
+                                side_effect=["nonce-one", "nonce-two", "new-signing-secret"])):
+            first = server._issue_remote_session(issued)
+            second = server._issue_remote_session(issued)
+            self.assertNotEqual(first, second)
+            self.assertTrue(server._valid_remote_session(first, issued))
+            self.assertTrue(server._valid_remote_session(
+                first, issued + server.REMOTE_SESSION_TTL - 1,
+            ))
+            self.assertFalse(server._valid_remote_session(
+                first, issued + server.REMOTE_SESSION_TTL,
+            ))
+            self.assertFalse(server._valid_remote_session("correct horse battery staple", issued))
+
+            encoded, _signature = first.split(".", 1)
+            tampered = encoded + "." + server._b64encode(b"\0" * 32)
+            self.assertFalse(server._valid_remote_session(tampered, issued))
+
+            self.assertEqual("new-signing-secret", server._rotate_remote_sessions())
+            self.assertFalse(server._valid_remote_session(first, issued))
+
+    def test_password_rotation_cannot_issue_an_old_password_session_on_the_new_key(self):
+        password = "old-password"
+        salt = b"s" * server.LAN_PASSWORD_SALT_BYTES
+        verifier = b"v" * server.LAN_PASSWORD_DKLEN
+        config = {server.LAN_PASSWORD_CONFIG_KEY: {
+            "salt": server._b64encode(salt),
+            "verifier": server._b64encode(verifier),
+        }}
+        deriving = threading.Event()
+        release_derivation = threading.Event()
+        rotation_started = threading.Event()
+        rotation_done = threading.Event()
+        issued = []
+
+        def slow_derive(value, supplied_salt):
+            self.assertEqual((password, salt), (value, supplied_salt))
+            deriving.set()
+            self.assertTrue(release_derivation.wait(2))
+            return verifier
+
+        def authenticate():
+            issued.append(server._authenticate_lan_password(password))
+
+        def rotate():
+            rotation_started.set()
+            with server._AUTH_LOCK:
+                server._rotate_remote_sessions()
+            rotation_done.set()
+
+        with (mock.patch.object(server, "APP_CONFIG", config),
+              mock.patch.object(server, "REMOTE_SESSION_SECRET", "old-secret"),
+              mock.patch.object(server, "_derive_password_verifier", side_effect=slow_derive)):
+            login_thread = threading.Thread(target=authenticate)
+            login_thread.start()
+            self.assertTrue(deriving.wait(1))
+            rotation_thread = threading.Thread(target=rotate)
+            rotation_thread.start()
+            self.assertTrue(rotation_started.wait(1))
+            self.assertFalse(rotation_done.wait(.05))
+            release_derivation.set()
+            login_thread.join(2)
+            rotation_thread.join(2)
+            self.assertFalse(login_thread.is_alive())
+            self.assertFalse(rotation_thread.is_alive())
+            self.assertTrue(issued[0])
+            self.assertFalse(server._valid_remote_session(issued[0]))
+
+    def test_login_rate_limit_is_per_client_and_can_be_cleared(self):
+        with (mock.patch.object(server, "_LOGIN_ATTEMPTS", {}),
+              mock.patch.object(server, "_LOGIN_GLOBAL_ATTEMPTS", [])):
+            for offset in range(server.LOGIN_RATE_MAX_ATTEMPTS):
+                self.assertEqual(0, server._login_rate_limit("192.0.2.10", 100 + offset))
+            self.assertGreater(server._login_rate_limit("192.0.2.10", 105), 0)
+            self.assertEqual(0, server._login_rate_limit("192.0.2.11", 105))
+            server._clear_login_rate_limit("192.0.2.10")
+            self.assertEqual(0, server._login_rate_limit("192.0.2.10", 106))
+
+        with (mock.patch.object(server, "_LOGIN_ATTEMPTS", {}),
+              mock.patch.object(server, "_LOGIN_GLOBAL_ATTEMPTS", [])):
+            for index in range(server.LOGIN_RATE_GLOBAL_MAX_ATTEMPTS):
+                self.assertEqual(0, server._login_rate_limit(f"192.0.2.{index + 1}", 200))
+            self.assertGreater(server._login_rate_limit("198.51.100.1", 200), 0)
+            self.assertLessEqual(len(server._LOGIN_ATTEMPTS),
+                                 server.LOGIN_RATE_GLOBAL_MAX_ATTEMPTS)
+            self.assertEqual(0, server._login_rate_limit(
+                "198.51.100.1", 200 + server.LOGIN_RATE_WINDOW + 1,
+            ))
+            self.assertEqual(["198.51.100.1"], list(server._LOGIN_ATTEMPTS))
+
+    def test_remote_login_issues_separate_session_and_protects_apis(self):
+        with (mock.patch.object(server, "REMOTE_ACCESS_ENABLED", True),
+              mock.patch.object(server.Handler, "_local_control_client", return_value=False),
+              mock.patch.object(server.Handler, "_valid_lan_host", return_value=True),
+              mock.patch.object(server, "_password_configured", return_value=True),
+              mock.patch.object(server, "_verify_lan_password",
+                                side_effect=lambda value: value == "phone-password") as verify,
+              mock.patch.object(server, "_issue_remote_session",
+                                return_value="opaque-phone-session"),
+              mock.patch.object(server, "_valid_remote_session",
+                                side_effect=lambda value: value == "opaque-phone-session"),
+              mock.patch.object(server, "_login_rate_limit", return_value=0),
+              mock.patch.object(server, "_clear_login_rate_limit")):
+            httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+            thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+            thread.start()
+            port = httpd.server_port
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+            origin = f"http://127.0.0.1:{port}"
+
+            def request(method, path, body=None, headers=None):
+                connection.request(method, path, body=body, headers=headers or {})
+                response = connection.getresponse()
+                raw = response.read()
+                payload = (json.loads(raw) if raw and
+                           response.getheader("Content-Type", "").startswith("application/json")
+                           else raw)
+                return response, payload
+
+            try:
+                shell, _ = request("GET", "/")
+                self.assertEqual(200, shell.status)
+                self.assertEqual("DENY", shell.getheader("X-Frame-Options"))
+
+                unauthorized, error = request("GET", "/api/config")
+                self.assertEqual(401, unauthorized.status)
+                self.assertEqual("lan_login_required", error["code"])
+
+                protected = {
+                    "X-AIConvo-Request": "1",
+                    "Origin": origin,
+                    "Content-Type": "application/json",
+                }
+                simple, error = request(
+                    "POST", "/api/auth/login",
+                    json.dumps({"password": "phone-password"}),
+                    {"Content-Type": "text/plain", "Origin": "http://malicious.invalid"},
+                )
+                self.assertEqual(403, simple.status)
+                self.assertIn("protected app request", error["error"])
+
+                cross_origin, error = request(
+                    "POST", "/api/auth/login",
+                    json.dumps({"password": "phone-password"}),
+                    {**protected, "Origin": "http://malicious.invalid"},
+                )
+                self.assertEqual(403, cross_origin.status)
+                self.assertIn("same-origin", error["error"])
+
+                wrong_type, error = request(
+                    "POST", "/api/auth/login",
+                    json.dumps({"password": "phone-password"}),
+                    {**protected, "Content-Type": "text/plain"},
+                )
+                self.assertEqual(415, wrong_type.status)
+
+                rejected, error = request(
+                    "POST", "/api/auth/login",
+                    json.dumps({"password": "wrong-password"}), protected,
+                )
+                self.assertEqual(401, rejected.status)
+                self.assertEqual("invalid_password", error["code"])
+                self.assertNotIn("sessionToken", error)
+
+                logged_in, login = request(
+                    "POST", "/api/auth/login",
+                    json.dumps({"password": "phone-password"}), protected,
+                )
+                self.assertEqual(200, logged_in.status)
+                self.assertEqual("no-store", logged_in.getheader("Cache-Control"))
+                self.assertEqual("opaque-phone-session", login["sessionToken"])
+                self.assertNotIn("phone-password", json.dumps(login))
+                self.assertEqual(2, verify.call_count)
+
+                password_is_not_session, _ = request("GET", "/api/config", headers={
+                    "X-AIConvo-Session": "phone-password",
+                })
+                self.assertEqual(401, password_is_not_session.status)
+
+                allowed, config = request("GET", "/api/config", headers={
+                    "X-AIConvo-Session": "opaque-phone-session",
+                })
+                self.assertEqual(200, allowed.status)
+                self.assertTrue(config["remoteEnabled"])
+                self.assertFalse(config["remoteControl"])
+                self.assertEqual([], config["remoteUrls"])
+
+                local_only, _ = request(
+                    "POST", "/api/restart", json.dumps({}), {
+                        **protected, "X-AIConvo-Session": "opaque-phone-session",
+                    },
+                )
+                self.assertEqual(403, local_only.status)
+            finally:
+                connection.close()
+                httpd.shutdown()
+                httpd.server_close()
+                thread.join(timeout=2)
+
+    def test_remote_without_password_fails_closed(self):
+        with (mock.patch.object(server, "REMOTE_ACCESS_ENABLED", True),
+              mock.patch.object(server.Handler, "_local_control_client", return_value=False),
+              mock.patch.object(server.Handler, "_valid_lan_host", return_value=True),
+              mock.patch.object(server, "_password_configured", return_value=False)):
+            httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+            thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+            thread.start()
+            connection = http.client.HTTPConnection(
+                "127.0.0.1", httpd.server_port, timeout=3,
+            )
+            origin = f"http://127.0.0.1:{httpd.server_port}"
+            try:
+                connection.request("GET", "/api/auth/status")
+                status = connection.getresponse()
+                self.assertEqual(200, status.status)
+                self.assertFalse(json.load(status)["passwordConfigured"])
+
+                connection.request(
+                    "POST", "/api/auth/login",
+                    body=json.dumps({"password": "phone-password"}),
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-AIConvo-Request": "1",
+                        "Origin": origin,
+                    },
+                )
+                login = connection.getresponse()
+                self.assertEqual(409, login.status)
+                self.assertEqual("password_not_configured", json.load(login)["code"])
+
+                connection.request("GET", "/api/config")
+                protected = connection.getresponse()
+                self.assertEqual(401, protected.status)
+                protected.read()
+            finally:
+                connection.close()
+                httpd.shutdown()
+                httpd.server_close()
+                thread.join(timeout=2)
+
+    def test_hostile_webpage_cannot_post_to_loopback_agent_api(self):
+        with mock.patch.object(server.Handler, "stream_agent") as stream:
+            httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+            thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+            thread.start()
+            connection = http.client.HTTPConnection("127.0.0.1", httpd.server_port, timeout=3)
+            try:
+                payload = json.dumps({
+                    "agent": "claude", "cwd": tempfile.gettempdir(), "write": True,
+                    "transcript": [{"name": "user", "text": "Run a command."}],
+                })
+                connection.request(
+                    "POST", "/api/ask", body=payload,
+                    headers={"Content-Type": "text/plain", "Origin": "http://malicious.invalid"},
+                )
+                response = connection.getresponse()
+                self.assertEqual(403, response.status)
+                self.assertIn("protected app request", json.load(response)["error"])
+                stream.assert_not_called()
+            finally:
+                connection.close()
+                httpd.shutdown()
+                httpd.server_close()
+                thread.join(timeout=2)
+
+    def test_loopback_server_rejects_dns_rebinding_host(self):
+        httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        connection = http.client.HTTPConnection("127.0.0.1", httpd.server_port, timeout=3)
+        try:
+            connection.request("GET", "/api/config", headers={
+                "Host": "roundtable.attacker.invalid"
+            })
+            response = connection.getresponse()
+            self.assertEqual(403, response.status)
+            self.assertIn("local URL", json.load(response)["error"])
+        finally:
+            connection.close()
+            httpd.shutdown()
+            httpd.server_close()
+            thread.join(timeout=2)
+
+    def test_provider_process_never_inherits_session_handoff_secrets(self):
+        with (mock.patch.dict(server.os.environ,
+                              {server.REMOTE_TOKEN_ENV: "must-not-reach-agent",
+                               server.REMOTE_TOKEN_FILE_ENV: "/tmp/must-not-reach-agent",
+                               "AICONVO_TEST_SENTINEL": "kept"}, clear=False),
+              mock.patch.object(server, "_resolve_cli_command",
+                                return_value=(["agent"], {})),
+              mock.patch.object(server, "_popen_platform_kwargs", return_value={}),
+              mock.patch.object(server.subprocess, "Popen") as popen):
+            server._spawn_cli(["agent"], stdout=subprocess.PIPE)
+        environment = popen.call_args.kwargs["env"]
+        self.assertNotIn(server.REMOTE_TOKEN_ENV, environment)
+        self.assertNotIn(server.REMOTE_TOKEN_FILE_ENV, environment)
+        self.assertEqual("kept", environment["AICONVO_TEST_SENTINEL"])
+
+    def test_restart_session_secret_handoff_is_private_consumed_and_deleted(self):
+        path = server._write_remote_token_handoff("handoff-secret")
+        try:
+            if os.name != "nt":
+                self.assertEqual(0, os.stat(path).st_mode & 0o077)
+            with mock.patch.dict(server.os.environ, {
+                server.REMOTE_TOKEN_FILE_ENV: path,
+                server.REMOTE_TOKEN_ENV: "obsolete-direct-secret",
+            }, clear=False):
+                self.assertEqual("handoff-secret", server._consume_remote_token_handoff())
+                self.assertNotIn(server.REMOTE_TOKEN_FILE_ENV, server.os.environ)
+                self.assertNotIn(server.REMOTE_TOKEN_ENV, server.os.environ)
+            self.assertFalse(os.path.exists(path))
+        finally:
+            if os.path.exists(path):
+                os.unlink(path)
+
+    def test_local_remote_toggle_requires_password_and_uses_plain_urls(self):
+        restarted = threading.Event()
+        restart_secrets = []
+        restart_environments = []
+        password_state = {"configured": False, "values": []}
+
+        def fake_restart(httpd, remote_token=None, prepared=None):
+            restart_secrets.append(remote_token)
+            restart_environments.append(prepared[1])
+            restarted.set()
+
+        def fake_configure(value):
+            server._clean_lan_password(value)
+            password_state["configured"] = True
+            password_state["values"].append(value)
+            return True
+
+        with (mock.patch.object(server, "REMOTE_ACCESS_ENABLED", False),
+              mock.patch.object(server, "_password_configured",
+                                side_effect=lambda: password_state["configured"]),
+              mock.patch.object(server, "configure_lan_password",
+                                side_effect=fake_configure),
+              mock.patch.object(server, "_rotate_remote_sessions",
+                                side_effect=["enable-secret", "change-secret", "disable-secret"]),
+              mock.patch.object(server, "_remote_urls",
+                                return_value=["http://192.168.1.5:8765/"]),
+              mock.patch.object(server, "_restart_soon", side_effect=fake_restart),
+              mock.patch.dict(server.os.environ, {}, clear=False)):
+            httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+            thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+            thread.start()
+
+            def toggle(body):
+                return urllib.request.urlopen(urllib.request.Request(
+                    f"http://127.0.0.1:{httpd.server_port}/api/remote", method="POST",
+                    headers={"Content-Type": "application/json", "X-AIConvo-Request": "1"},
+                    data=json.dumps(body).encode(),
+                ))
+
+            try:
+                with self.assertRaises(urllib.error.HTTPError) as missing:
+                    toggle({"enabled": True})
+                self.assertEqual(400, missing.exception.code)
+                self.assertEqual("password_required", json.load(missing.exception)["code"])
+
+                with self.assertRaises(urllib.error.HTTPError) as short:
+                    toggle({"enabled": True, "password": "short"})
+                self.assertEqual(400, short.exception.code)
+                self.assertEqual([], restart_secrets)
+
+                with toggle({"enabled": True, "password": "phone-password"}) as response:
+                    result = json.load(response)
+                self.assertTrue(result["restarting"])
+                self.assertEqual(["http://192.168.1.5:8765/"], result["urls"])
+                self.assertTrue(result["passwordConfigured"])
+                self.assertNotIn("accessToken", result)
+                self.assertNotIn("sessionToken", result)
+                self.assertNotIn("phone-password", json.dumps(result))
+                self.assertEqual("0.0.0.0", restart_environments[-1]["ROUNDTABLE_HOST"])
+                self.assertNotIn(server.REMOTE_TOKEN_ENV, server.os.environ)
+                self.assertTrue(restarted.wait(1))
+                self.assertEqual(["enable-secret"], restart_secrets)
+                self.assertEqual(["phone-password"], password_state["values"])
+                deadline = time.time() + 1
+                while server._CONTROL_OPERATION_LOCK.locked() and time.time() < deadline:
+                    time.sleep(.01)
+
+                restarted.clear()
+                with mock.patch.object(server, "REMOTE_ACCESS_ENABLED", True):
+                    with toggle({"password": "replacement-password"}) as response:
+                        changed = json.load(response)
+                    self.assertFalse(changed["restarting"])
+                    self.assertTrue(changed["enabled"])
+                    self.assertTrue(changed["passwordConfigured"])
+                    self.assertEqual(["enable-secret"], restart_secrets)
+
+                    with toggle({"enabled": False}) as response:
+                        disabled = json.load(response)
+                self.assertTrue(disabled["restarting"])
+                self.assertEqual("127.0.0.1", restart_environments[-1]["ROUNDTABLE_HOST"])
+                self.assertNotIn(server.REMOTE_TOKEN_ENV, server.os.environ)
+                self.assertTrue(restarted.wait(1))
+                self.assertEqual(["enable-secret", "disable-secret"], restart_secrets)
+                self.assertEqual(
+                    ["phone-password", "replacement-password"],
+                    password_state["values"],
+                )
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
+                thread.join(timeout=2)
+
+    def test_control_endpoints_reject_overlapping_restart_or_lan_change(self):
+        self.assertTrue(server._CONTROL_OPERATION_LOCK.acquire(blocking=False))
+        httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        try:
+            for path, body in (("/api/restart", {}), ("/api/remote", {"enabled": False})):
+                with self.subTest(path=path):
+                    request = urllib.request.Request(
+                        f"http://127.0.0.1:{httpd.server_port}{path}", method="POST",
+                        headers={"Content-Type": "application/json", "X-AIConvo-Request": "1"},
+                        data=json.dumps(body).encode(),
+                    )
+                    with self.assertRaises(urllib.error.HTTPError) as caught:
+                        urllib.request.urlopen(request)
+                    self.assertEqual(409, caught.exception.code)
+                    self.assertIn("already in progress", json.load(caught.exception)["error"])
+        finally:
+            server._CONTROL_OPERATION_LOCK.release()
+            httpd.shutdown()
+            httpd.server_close()
+            thread.join(timeout=2)
 
 
 class CommandTests(unittest.TestCase):
@@ -510,18 +1220,20 @@ class ProcessPortabilityTests(unittest.TestCase):
         httpd = mock.Mock()
         executable = os.path.abspath(os.path.join(tempfile.gettempdir(), "python executable"))
         argv = [executable, os.path.abspath("server.py"), "9012"]
+        environment = {"TEST_RESTART": "1"}
+        prepared = (os.path.join(tempfile.gettempdir(), "already-consumed.key"), environment)
         with (mock.patch.object(server.time, "sleep") as sleep,
               mock.patch.object(server, "_kill_all_processes") as kill_all,
               mock.patch.object(server, "_restart_argv", return_value=argv),
               mock.patch.object(server.sys, "executable", executable),
-              mock.patch.object(server.os, "execv", side_effect=SystemExit) as execv):
+              mock.patch.object(server.os, "execve", side_effect=SystemExit) as execve):
             with self.assertRaises(SystemExit):
-                server._restart_soon(httpd)
+                server._restart_soon(httpd, prepared=prepared)
         sleep.assert_called_once_with(0.4)
         kill_all.assert_called_once_with()
         httpd.shutdown.assert_called_once_with()
         httpd.server_close.assert_called_once_with()
-        execv.assert_called_once_with(executable, argv)
+        execve.assert_called_once_with(executable, argv, environment)
 
     def test_provider_loaders_use_configured_home_directories(self):
         with tempfile.TemporaryDirectory() as directory:
